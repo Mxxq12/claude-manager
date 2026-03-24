@@ -7,4 +7,7 @@ export default defineConfig({
   base: './',
   build: { outDir: 'dist' },
   resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
+  test: {
+    exclude: ['node_modules', 'dist', 'dist-electron'],
+  },
 });
