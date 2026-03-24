@@ -7,19 +7,31 @@ interface Props {
 
 export function StatusBar({ session }: Props) {
   const [elapsed, setElapsed] = useState('');
+  const [uptime, setUptime] = useState('');
 
   useEffect(() => {
     if (!session) return;
     const update = () => {
+      // Status elapsed
       const seconds = Math.floor((Date.now() - session.statusTimestamp) / 1000);
       if (seconds < 60) setElapsed(`${seconds}秒`);
       else if (seconds < 3600) setElapsed(`${Math.floor(seconds / 60)}分钟`);
       else setElapsed(`${Math.floor(seconds / 3600)}小时`);
+
+      // Session uptime (since creation)
+      const uptimeSec = Math.floor((Date.now() - session.createdAt) / 1000);
+      if (uptimeSec < 60) setUptime(`${uptimeSec}秒`);
+      else if (uptimeSec < 3600) setUptime(`${Math.floor(uptimeSec / 60)}分钟`);
+      else {
+        const h = Math.floor(uptimeSec / 3600);
+        const m = Math.floor((uptimeSec % 3600) / 60);
+        setUptime(`${h}小时${m}分钟`);
+      }
     };
     update();
     const interval = setInterval(update, 1000);
     return () => clearInterval(interval);
-  }, [session?.statusTimestamp]);
+  }, [session?.statusTimestamp, session?.createdAt]);
 
   if (!session) return <footer className="status-bar" />;
 
@@ -37,6 +49,7 @@ export function StatusBar({ session }: Props) {
       <span className="status-bar-cwd">{session.cwd}</span>
       <span className="status-bar-status">{statusLabel}</span>
       <span className="status-bar-elapsed">{elapsed}</span>
+      <span className="status-bar-cost">消耗: 运行 {uptime}</span>
     </footer>
   );
 }

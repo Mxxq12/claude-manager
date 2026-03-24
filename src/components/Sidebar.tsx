@@ -1,6 +1,7 @@
 import { useMemo, useEffect, useState } from 'react';
 import { useSessionStore } from '../stores/session-store';
 import { SessionCard } from './SessionCard';
+import { BatchCommandModal } from './BatchCommandModal';
 import type { SessionStatus } from '../types';
 
 const statusOrder: Record<SessionStatus, number> = {
@@ -12,7 +13,12 @@ interface RecentProject {
   name: string;
 }
 
-export function Sidebar() {
+interface Props {
+  splitView: boolean;
+  onToggleSplit: () => void;
+}
+
+export function Sidebar({ splitView, onToggleSplit }: Props) {
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
@@ -20,6 +26,7 @@ export function Sidebar() {
   const clearPreviousSession = useSessionStore((s) => s.clearPreviousSession);
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showBatchModal, setShowBatchModal] = useState(false);
 
   const sortedSessions = useMemo(() =>
     [...sessions].sort((a, b) => {
@@ -98,7 +105,23 @@ export function Sidebar() {
           <span title="错误">🔴 {statusCounts.error}</span>
         </div>
       )}
-      <button className="new-session-btn" onClick={handleNewSession}>+ 新建会话</button>
+      <div className="sidebar-buttons">
+        <button className="new-session-btn" onClick={handleNewSession}>+ 新建会话</button>
+        <button
+          className={`split-btn ${splitView ? 'active' : ''}`}
+          onClick={onToggleSplit}
+          title={splitView ? '关闭分屏' : '开启分屏'}
+        >
+          分屏
+        </button>
+      </div>
+      <button
+        className="batch-btn"
+        onClick={() => setShowBatchModal(true)}
+        disabled={sessions.filter((s) => s.status !== 'closed').length === 0}
+      >
+        批量指令
+      </button>
       <div className="session-list">
         {sortedSessions.map((session) => (
           <SessionCard
@@ -160,6 +183,12 @@ export function Sidebar() {
             )}
           </div>
         </div>
+      )}
+      {showBatchModal && (
+        <BatchCommandModal
+          sessions={sessions}
+          onClose={() => setShowBatchModal(false)}
+        />
       )}
     </aside>
   );

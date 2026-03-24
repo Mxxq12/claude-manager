@@ -1,7 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Terminal } from './components/Terminal';
 import { StatusBar } from './components/StatusBar';
+import { InputBar } from './components/InputBar';
 import { useSessionStore } from './stores/session-store';
 import type { SessionStatus } from './types';
 import './App.css';
@@ -23,6 +24,10 @@ export function App() {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;
+
+  const [splitView, setSplitView] = useState(false);
+  const [rightSessionId, setRightSessionId] = useState<string | null>(null);
+  const rightSession = sessions.find((s) => s.id === rightSessionId) ?? null;
 
   const addSession = useSessionStore((s) => s.addSession);
   const updateStatus = useSessionStore((s) => s.updateStatus);
@@ -87,13 +92,45 @@ export function App() {
     return () => window.removeEventListener('keydown', handler);
   }, [activeSessionId]);
 
+  // Clean up right pane session if it was removed
+  useEffect(() => {
+    if (rightSessionId && !sessions.find((s) => s.id === rightSessionId)) {
+      setRightSessionId(null);
+    }
+  }, [sessions, rightSessionId]);
+
   return (
     <div className="app">
-      <Sidebar />
-      <main className="main-area">
-        <Terminal sessionId={activeSessionId} />
-        <StatusBar session={activeSession} />
-      </main>
+      <Sidebar
+        splitView={splitView}
+        onToggleSplit={() => setSplitView((v) => !v)}
+      />
+      <div className={`main-panels ${splitView ? 'split' : ''}`}>
+        <main className="main-area">
+          <Terminal sessionId={activeSessionId} />
+          <InputBar sessionId={activeSessionId} />
+          <StatusBar session={activeSession} />
+        </main>
+        {splitView && (
+          <main className="main-area right-pane">
+            <div className="right-pane-selector">
+              <select
+                className="right-pane-select"
+                value={rightSessionId ?? ''}
+                onChange={(e) => setRightSessionId(e.target.value || null)}
+              >
+                <option value="">-- 选择会话 --</option>
+                {sessions.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+            <Terminal sessionId={rightSessionId} />
+            <InputBar sessionId={rightSessionId} />
+            <StatusBar session={rightSession} />
+          </main>
+        )}
+      </div>
     </div>
   );
 }

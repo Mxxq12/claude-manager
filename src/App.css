@@ -36,8 +36,15 @@ html, body, #root {
   gap: 4px;
 }
 
+/* Sidebar buttons row */
+.sidebar-buttons {
+  display: flex;
+  gap: 8px;
+  margin: 12px 12px 0;
+}
+
 .new-session-btn {
-  margin: 12px;
+  flex: 1;
   padding: 10px;
   background: #89b4fa;
   color: #1e1e2e;
@@ -48,6 +55,34 @@ html, body, #root {
   font-weight: 600;
 }
 .new-session-btn:hover { background: #74c7ec; }
+
+.split-btn {
+  padding: 10px 14px;
+  background: #45475a;
+  color: #cdd6f4;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.split-btn:hover { background: #585b70; }
+.split-btn.active { background: #89b4fa; color: #1e1e2e; }
+
+.batch-btn {
+  margin: 8px 12px 12px;
+  padding: 8px;
+  background: #45475a;
+  color: #cdd6f4;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+.batch-btn:hover { background: #585b70; }
+.batch-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .session-list { flex: 1; overflow-y: auto; padding: 0 8px; }
 
@@ -108,6 +143,22 @@ html, body, #root {
   color: #6c7086;
 }
 
+/* Main panels (split view) */
+.main-panels {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.main-panels.split .main-area {
+  flex: 1;
+  min-width: 0;
+}
+
+.main-panels.split .right-pane {
+  border-left: 2px solid #313244;
+}
+
 .main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
 .terminal-container { flex: 1; padding: 4px; }
@@ -121,6 +172,68 @@ html, body, #root {
   font-size: 16px;
 }
 
+/* Right pane session selector */
+.right-pane-selector {
+  padding: 6px 8px;
+  background: #181825;
+  border-bottom: 1px solid #313244;
+}
+
+.right-pane-select {
+  width: 100%;
+  padding: 6px 8px;
+  background: #1e1e2e;
+  color: #cdd6f4;
+  border: 1px solid #313244;
+  border-radius: 6px;
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+}
+.right-pane-select:focus { border-color: #89b4fa; }
+
+/* Input bar */
+.input-bar {
+  display: flex;
+  gap: 8px;
+  padding: 6px 8px;
+  background: #181825;
+  border-top: 1px solid #313244;
+}
+
+.input-bar-field {
+  flex: 1;
+  padding: 8px 12px;
+  background: #1e1e2e;
+  border: 1px solid #313244;
+  border-radius: 6px;
+  color: #cdd6f4;
+  font-size: 13px;
+  outline: none;
+  font-family: inherit;
+}
+.input-bar-field::placeholder { color: #6c7086; }
+.input-bar-field:focus { border-color: #89b4fa; }
+.input-bar-field:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.input-bar-send {
+  padding: 8px 16px;
+  background: #89b4fa;
+  color: #1e1e2e;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.input-bar-send:hover { background: #74c7ec; }
+.input-bar-send:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Status bar */
 .status-bar {
   height: 28px;
   background: #181825;
@@ -133,6 +246,7 @@ html, body, #root {
   color: #6c7086;
 }
 .status-bar-name { font-weight: 600; color: #cdd6f4; }
+.status-bar-cost { margin-left: auto; color: #a6adc8; }
 
 /* Recent Projects */
 .recent-projects {
@@ -213,3 +327,144 @@ html, body, #root {
 .previous-sessions-section {
   border-bottom: 1px solid #313244;
 }
+
+/* Batch Command Modal */
+.batch-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.batch-modal {
+  width: 480px;
+  max-height: 80vh;
+  background: #1e1e2e;
+  border: 1px solid #313244;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.batch-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #313244;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.batch-modal-close {
+  background: none;
+  border: none;
+  color: #6c7086;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.batch-modal-close:hover { color: #f38ba8; }
+
+.batch-modal-body {
+  padding: 16px 20px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.batch-modal-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: #181825;
+  border: 1px solid #313244;
+  border-radius: 8px;
+  color: #cdd6f4;
+  font-size: 14px;
+  outline: none;
+  margin-bottom: 16px;
+}
+.batch-modal-input::placeholder { color: #6c7086; }
+.batch-modal-input:focus { border-color: #89b4fa; }
+
+.batch-modal-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.batch-modal-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.batch-modal-check:hover { background: #313244; }
+
+.batch-modal-check input[type="checkbox"] {
+  accent-color: #89b4fa;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.batch-modal-cwd {
+  flex: 1;
+  text-align: right;
+  font-size: 11px;
+  color: #6c7086;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-modal-list {
+  margin-top: 4px;
+  border-top: 1px solid #313244;
+  padding-top: 4px;
+}
+
+.batch-modal-empty {
+  padding: 12px;
+  text-align: center;
+  color: #6c7086;
+  font-size: 13px;
+}
+
+.batch-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 20px;
+  border-top: 1px solid #313244;
+}
+
+.batch-modal-cancel {
+  padding: 8px 16px;
+  background: #45475a;
+  color: #cdd6f4;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.batch-modal-cancel:hover { background: #585b70; }
+
+.batch-modal-send {
+  padding: 8px 20px;
+  background: #89b4fa;
+  color: #1e1e2e;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+.batch-modal-send:hover { background: #74c7ec; }
+.batch-modal-send:disabled { opacity: 0.4; cursor: not-allowed; }

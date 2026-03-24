@@ -46,7 +46,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   previousSessions: loadPersistedSessions(),
   addSession: (id, name, cwd) =>
     set((state) => {
-      const newSessions = [...state.sessions, { id, name, cwd, status: 'idle' as SessionStatus, statusTimestamp: Date.now() }];
+      const now = Date.now();
+      const newSessions = [...state.sessions, { id, name, cwd, status: 'idle' as SessionStatus, statusTimestamp: now, createdAt: now }];
       persistSessions(newSessions);
       // Remove from previousSessions if it matches this cwd
       const newPrev = state.previousSessions.filter((s) => s.cwd !== cwd);

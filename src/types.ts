@@ -8,6 +8,7 @@ export interface SessionInfo {
   status: SessionStatus;
   idleSubStatus?: IdleSubStatus;
   statusTimestamp: number;
+  createdAt: number;
   exitCode?: number;
 }
 
