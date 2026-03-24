@@ -185,6 +185,10 @@ ipcMain.handle('get-recent-projects', async () => {
   }
 });
 
+ipcMain.on('window:set-title', (_, title: string) => {
+  mainWindow?.setTitle(title);
+});
+
 // SessionManager -> Renderer
 sessionManager.on('created', (payload) => {
   mainWindow?.webContents.send(IPC.SESSION_CREATED, payload);

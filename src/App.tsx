@@ -27,12 +27,26 @@ export function App() {
   const addSession = useSessionStore((s) => s.addSession);
   const updateStatus = useSessionStore((s) => s.updateStatus);
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
+  const setExitCode = useSessionStore((s) => s.setExitCode);
+
+  // Update window title when active session changes
+  useEffect(() => {
+    if (!window.electronAPI?.setWindowTitle) return;
+    if (activeSession) {
+      window.electronAPI.setWindowTitle(`${activeSession.name} - Claude Manager`);
+    } else {
+      window.electronAPI.setWindowTitle('Claude Manager');
+    }
+  }, [activeSession?.name, activeSessionId]);
 
   useEffect(() => {
     if (!window.electronAPI) return;
     const offCreated = window.electronAPI.onSessionCreated((p) => addSession(p.id, p.name, p.cwd));
     const offStatus = window.electronAPI.onSessionStatus((p) => updateStatus(p.id, p.status, p.idleSubStatus, p.timestamp));
-    const offClosed = window.electronAPI.onSessionClosed((p) => updateStatus(p.id, p.exitCode === 0 ? 'closed' : 'error', undefined, Date.now()));
+    const offClosed = window.electronAPI.onSessionClosed((p) => {
+      updateStatus(p.id, p.exitCode === 0 ? 'closed' : 'error', undefined, Date.now());
+      setExitCode(p.id, p.exitCode);
+    });
     return () => { offCreated(); offStatus(); offClosed(); };
   }, []);
 

@@ -20,6 +20,22 @@ html, body, #root {
   overflow: hidden;
 }
 
+/* Status summary bar */
+.status-summary {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  padding: 8px 12px;
+  font-size: 13px;
+  border-bottom: 1px solid #313244;
+  color: #cdd6f4;
+}
+.status-summary span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .new-session-btn {
   margin: 12px;
   padding: 10px;
@@ -70,6 +86,19 @@ html, body, #root {
 }
 .session-card:hover .close-btn { opacity: 1; }
 .close-btn:hover { color: #f38ba8; }
+
+.restart-btn {
+  background: none;
+  border: none;
+  color: #a6e3a1;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.session-card:hover .restart-btn { opacity: 1; }
+.restart-btn:hover { color: #94e2d5; }
 
 .session-card-meta {
   display: flex;
@@ -148,4 +177,39 @@ html, body, #root {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Search input for recent projects */
+.recent-search-wrapper {
+  padding: 0 8px 6px;
+}
+
+.recent-search-input {
+  width: 100%;
+  padding: 5px 8px;
+  background: #1e1e2e;
+  border: 1px solid #313244;
+  border-radius: 6px;
+  color: #cdd6f4;
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.recent-search-input::placeholder {
+  color: #6c7086;
+}
+.recent-search-input:focus {
+  border-color: #89b4fa;
+}
+
+.recent-search-empty {
+  padding: 8px 12px;
+  font-size: 11px;
+  color: #6c7086;
+  text-align: center;
+}
+
+/* Previous sessions section */
+.previous-sessions-section {
+  border-bottom: 1px solid #313244;
 }

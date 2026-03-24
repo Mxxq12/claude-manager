@@ -8,6 +8,7 @@ export interface SessionInfo {
   status: SessionStatus;
   idleSubStatus?: IdleSubStatus;
   statusTimestamp: number;
+  exitCode?: number;
 }
 
 export const IPC = {
@@ -72,6 +73,7 @@ export interface ElectronAPI {
   requestBuffer(id: string): void;
   selectDirectory(): Promise<string | null>;
   getRecentProjects(): Promise<{ path: string; name: string }[]>;
+  setWindowTitle(title: string): void;
   onSessionCreated(callback: (payload: SessionCreatedPayload) => void): () => void;
   onSessionData(callback: (payload: SessionDataPayload) => void): () => void;
   onSessionStatus(callback: (payload: SessionStatusPayload) => void): () => void;

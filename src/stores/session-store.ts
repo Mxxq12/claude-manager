@@ -1,25 +1,61 @@
 import { create } from 'zustand';
 import type { SessionInfo, SessionStatus, IdleSubStatus } from '../types';
 
+const PERSISTED_SESSIONS_KEY = 'claude-manager-session-cwds';
+
+function loadPersistedSessions(): { cwd: string; name: string }[] {
+  try {
+    const raw = localStorage.getItem(PERSISTED_SESSIONS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistSessions(sessions: SessionInfo[]) {
+  const data = sessions
+    .filter((s) => s.status !== 'closed')
+    .map((s) => ({ cwd: s.cwd, name: s.name }));
+  localStorage.setItem(PERSISTED_SESSIONS_KEY, JSON.stringify(data));
+}
+
+function clearPersistedSession(cwd: string) {
+  const current = loadPersistedSessions();
+  const updated = current.filter((s) => s.cwd !== cwd);
+  localStorage.setItem(PERSISTED_SESSIONS_KEY, JSON.stringify(updated));
+}
+
 interface SessionState {
   sessions: SessionInfo[];
   activeSessionId: string | null;
+  previousSessions: { cwd: string; name: string }[];
   addSession: (id: string, name: string, cwd: string) => void;
   updateStatus: (id: string, status: SessionStatus, idleSubStatus?: IdleSubStatus, timestamp?: number) => void;
   removeSession: (id: string) => void;
   renameSession: (id: string, name: string) => void;
   setActiveSession: (id: string) => void;
+  setExitCode: (id: string, exitCode: number) => void;
   getSortedSessions: () => SessionInfo[];
+  clearPreviousSession: (cwd: string) => void;
+  clearAllPreviousSessions: () => void;
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: [],
   activeSessionId: null,
+  previousSessions: loadPersistedSessions(),
   addSession: (id, name, cwd) =>
-    set((state) => ({
-      sessions: [...state.sessions, { id, name, cwd, status: 'idle', statusTimestamp: Date.now() }],
-      activeSessionId: state.activeSessionId ?? id,
-    })),
+    set((state) => {
+      const newSessions = [...state.sessions, { id, name, cwd, status: 'idle' as SessionStatus, statusTimestamp: Date.now() }];
+      persistSessions(newSessions);
+      // Remove from previousSessions if it matches this cwd
+      const newPrev = state.previousSessions.filter((s) => s.cwd !== cwd);
+      return {
+        sessions: newSessions,
+        activeSessionId: state.activeSessionId ?? id,
+        previousSessions: newPrev,
+      };
+    }),
   updateStatus: (id, status, idleSubStatus, timestamp) =>
     set((state) => ({
       sessions: state.sessions.map((s) =>
@@ -28,7 +64,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     })),
   removeSession: (id) =>
     set((state) => {
+      const session = state.sessions.find((s) => s.id === id);
+      if (session) {
+        clearPersistedSession(session.cwd);
+      }
       const remaining = state.sessions.filter((s) => s.id !== id);
+      persistSessions(remaining);
       return {
         sessions: remaining,
         activeSessionId: state.activeSessionId === id ? (remaining[0]?.id ?? null) : state.activeSessionId,
@@ -39,6 +80,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessions: state.sessions.map((s) => (s.id === id ? { ...s, name } : s)),
     })),
   setActiveSession: (id) => set({ activeSessionId: id }),
+  setExitCode: (id, exitCode) =>
+    set((state) => ({
+      sessions: state.sessions.map((s) =>
+        s.id === id ? { ...s, exitCode } : s
+      ),
+    })),
   getSortedSessions: () => {
     const { sessions } = get();
     return [...sessions].sort((a, b) => {
@@ -49,5 +96,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       if (diff !== 0) return diff;
       return b.statusTimestamp - a.statusTimestamp;
     });
+  },
+  clearPreviousSession: (cwd) =>
+    set((state) => {
+      clearPersistedSession(cwd);
+      return { previousSessions: state.previousSessions.filter((s) => s.cwd !== cwd) };
+    }),
+  clearAllPreviousSessions: () => {
+    localStorage.removeItem(PERSISTED_SESSIONS_KEY);
+    set({ previousSessions: [] });
   },
 }));

@@ -36,6 +36,9 @@ const api = {
   async getRecentProjects(): Promise<{ path: string; name: string }[]> {
     return ipcRenderer.invoke('get-recent-projects');
   },
+  setWindowTitle(title: string) {
+    ipcRenderer.send('window:set-title', title);
+  },
   onSessionCreated(callback: (payload: any) => void) {
     const handler = (_: unknown, payload: unknown) => callback(payload);
     ipcRenderer.on(IPC.SESSION_CREATED, handler);
