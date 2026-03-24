@@ -23,6 +23,28 @@ const MAX_BUFFER_BYTES = 5_000_000;
 export class SessionManager extends EventEmitter {
   private sessions = new Map<string, Session>();
   private hookServerPort: number = 0;
+  private autoApproveGlobal: boolean = false;
+  private autoApproveSessions = new Set<string>();
+
+  setAutoApproveGlobal(enabled: boolean) {
+    this.autoApproveGlobal = enabled;
+  }
+
+  getAutoApproveGlobal(): boolean {
+    return this.autoApproveGlobal;
+  }
+
+  setAutoApproveSession(id: string, enabled: boolean) {
+    if (enabled) {
+      this.autoApproveSessions.add(id);
+    } else {
+      this.autoApproveSessions.delete(id);
+    }
+  }
+
+  isAutoApprove(id: string): boolean {
+    return this.autoApproveGlobal || this.autoApproveSessions.has(id);
+  }
 
   setHookServerPort(port: number) {
     this.hookServerPort = port;
@@ -38,13 +60,26 @@ export class SessionManager extends EventEmitter {
       CLAUDE_MANAGER_SESSION_ID: id,
     };
 
-    const ptyProcess = pty.spawn('claude', ['--dangerously-skip-permissions', '--permission-mode', 'bypassPermissions'], {
+    // Resolve claude path - needed when launched from Finder where PATH is limited
+    const claudePath = (() => {
+      const candidates = ['/opt/homebrew/bin/claude', '/usr/local/bin/claude'];
+      for (const c of candidates) {
+        try { if (require('fs').existsSync(c)) return c; } catch {}
+      }
+      return 'claude';
+    })();
+
+    const shell = process.env.SHELL || '/bin/zsh';
+    const ptyProcess = pty.spawn(shell, ['-l'], {
       name: 'xterm-256color',
       cwd,
       cols: 120,
       rows: 30,
       env,
     });
+
+    // Launch claude inside the shell, clear the command from terminal history/display
+    ptyProcess.write(`clear && ${claudePath} --dangerously-skip-permissions --permission-mode bypassPermissions\r`);
 
     const session: Session = {
       id,
@@ -57,6 +92,8 @@ export class SessionManager extends EventEmitter {
       bufferSize: 0,
     };
 
+    let recentOutput = '';
+
     ptyProcess.onData((data: string) => {
       const bytes = new TextEncoder().encode(data);
       session.outputBuffer.push(bytes);
@@ -68,6 +105,31 @@ export class SessionManager extends EventEmitter {
       }
 
       this.emit('data', { id, data: bytes });
+
+      // Auto-approve: detect permission prompts in terminal output
+      if (this.isAutoApprove(id)) {
+        recentOutput += data;
+        // Keep only last 500 chars to avoid memory buildup
+        if (recentOutput.length > 500) {
+          recentOutput = recentOutput.slice(-500);
+        }
+        // Detect common approval patterns from Claude CLI
+        if (/\(Y\)es/i.test(recentOutput) || /\[Y\/n\]/i.test(recentOutput) || /Do you want to proceed/i.test(recentOutput)) {
+          recentOutput = '';
+          setTimeout(() => {
+            const s = this.sessions.get(id);
+            if (s) s.pty.write('y');
+          }, 200);
+        }
+        // Detect sandbox permission prompts (network/filesystem interactive menu)
+        if (/Do you want to allow/i.test(recentOutput) && /❯\s*1\.\s*Yes/i.test(recentOutput)) {
+          recentOutput = '';
+          setTimeout(() => {
+            const s = this.sessions.get(id);
+            if (s) s.pty.write('\r');
+          }, 200);
+        }
+      }
     });
 
     ptyProcess.onExit(({ exitCode }) => {
@@ -99,6 +161,16 @@ export class SessionManager extends EventEmitter {
       idleSubStatus: subStatus,
       timestamp: session.statusTimestamp,
     });
+
+    // Auto-approve: when approval is requested and auto-approve is on, send 'y'
+    if (status === 'idle' && subStatus === 'approval' && this.isAutoApprove(id)) {
+      setTimeout(() => {
+        const s = this.sessions.get(id);
+        if (s && s.status === 'idle' && s.idleSubStatus === 'approval') {
+          s.pty.write('y');
+        }
+      }, 300);
+    }
   }
 
   sendInput(id: string, data: string): void {
@@ -122,7 +194,13 @@ export class SessionManager extends EventEmitter {
   }
 
   resizePty(id: string, cols: number, rows: number): void {
-    this.sessions.get(id)?.pty.resize(cols, rows);
+    const session = this.sessions.get(id);
+    if (!session) return;
+    try {
+      session.pty.resize(cols, rows);
+    } catch (_) {
+      // pty already closed
+    }
   }
 
   getSession(id: string) {

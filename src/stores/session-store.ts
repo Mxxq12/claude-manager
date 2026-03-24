@@ -53,7 +53,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const newPrev = state.previousSessions.filter((s) => s.cwd !== cwd);
       return {
         sessions: newSessions,
-        activeSessionId: state.activeSessionId ?? id,
+        activeSessionId: id,
         previousSessions: newPrev,
       };
     }),

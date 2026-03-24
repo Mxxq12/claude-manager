@@ -22,13 +22,32 @@ export function InputBar({ sessionId }: Props) {
     }
   };
 
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const files = e.dataTransfer.files;
+    const paths: string[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const filePath = window.electronAPI.getPathForFile(files[i]);
+      if (filePath) paths.push(filePath);
+    }
+    if (paths.length > 0) {
+      setValue((prev) => (prev ? prev + ' ' : '') + paths.join(' '));
+      inputRef.current?.focus();
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+
   return (
-    <div className="input-bar">
+    <div className="input-bar" onDrop={handleDrop} onDragOver={handleDragOver}>
       <input
         ref={inputRef}
         className="input-bar-field"
         type="text"
-        placeholder="输入消息..."
+        placeholder="输入消息或拖入文件..."
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}

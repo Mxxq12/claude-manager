@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import type { SessionInfo } from '../types';
 
 const STATUS_INDICATOR: Record<string, string> = {
@@ -30,11 +30,16 @@ interface Props {
   onClose: () => void;
   onRename: (name: string) => void;
   onRestart: () => void;
+  onClearTerminal: () => void;
 }
 
-export function SessionCard({ session, isActive, onClick, onClose, onRename, onRestart }: Props) {
-  const indicator = session.status === 'idle' && session.idleSubStatus === 'approval' ? '🟡' : STATUS_INDICATOR[session.status];
+export function SessionCard({ session, isActive, onClick, onClose, onRename, onRestart, onClearTerminal }: Props) {
+  const indicator = session.status === 'idle' && session.idleSubStatus === 'approval' ? '🟠' : STATUS_INDICATOR[session.status];
   const [elapsed, setElapsed] = useState('');
+  const [autoApprove, setAutoApprove] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Live-updating elapsed time
   useEffect(() => {
@@ -49,10 +54,10 @@ export function SessionCard({ session, isActive, onClick, onClose, onRename, onR
 
   const handleClose = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (session.status === 'busy') {
-      const confirmed = window.confirm(`确认关闭会话 '${session.name}'？正在运行的任务将被终止`);
-      if (!confirmed) return;
-    }
+    const msg = session.status === 'busy'
+      ? `确认关闭会话 '${session.name}'？正在运行的任务将被终止`
+      : `确认关闭会话 '${session.name}'？`;
+    if (!window.confirm(msg)) return;
     onClose();
   };
 
@@ -61,10 +66,23 @@ export function SessionCard({ session, isActive, onClick, onClose, onRename, onR
     onRestart();
   };
 
+  const startEditing = () => {
+    setEditName(session.name);
+    setEditing(true);
+    setTimeout(() => inputRef.current?.select(), 0);
+  };
+
+  const finishEditing = () => {
+    setEditing(false);
+    const trimmed = editName.trim();
+    if (trimmed && trimmed !== session.name) {
+      onRename(trimmed);
+    }
+  };
+
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
-    const name = prompt('重命名会话:', session.name);
-    if (name) onRename(name);
+    window.electronAPI.showSessionContextMenu(session.id);
   };
 
   // Task timing label: "忙碌 2分钟" or "空闲 5分钟"
@@ -78,14 +96,29 @@ export function SessionCard({ session, isActive, onClick, onClose, onRename, onR
 
   return (
     <div
-      className={`session-card ${isActive ? 'active' : ''} status-${session.status}`}
+      className={`session-card ${isActive ? 'active' : ''} status-${session.status} ${autoApprove ? 'auto-approve-active' : ''}`}
       onClick={onClick}
       onContextMenu={handleContextMenu}
       title={session.cwd}
     >
       <div className="session-card-header">
         <span className="status-indicator">{indicator}</span>
-        <span className="session-name">{session.name}</span>
+        {editing ? (
+          <input
+            ref={inputRef}
+            className="session-name-input"
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            onBlur={finishEditing}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') finishEditing();
+              if (e.key === 'Escape') setEditing(false);
+            }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        ) : (
+          <span className="session-name" onDoubleClick={(e) => { e.stopPropagation(); startEditing(); }}>{session.name}</span>
+        )}
         {session.status === 'error' && (
           <button className="restart-btn" onClick={handleRestart} title="重启会话">↻</button>
         )}
@@ -93,7 +126,18 @@ export function SessionCard({ session, isActive, onClick, onClose, onRename, onR
       </div>
       <div className="session-card-meta">
         <span className="session-status">{statusWithTime}</span>
-        <span className="session-elapsed">{elapsed}</span>
+        <button
+          className={`auto-approve-toggle ${autoApprove ? 'on' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            const next = !autoApprove;
+            setAutoApprove(next);
+            window.electronAPI.setAutoApproveSession(session.id, next);
+          }}
+          title={autoApprove ? '关闭自动审批' : '开启自动审批'}
+        >
+          {autoApprove ? '自动' : '自动'}
+        </button>
       </div>
     </div>
   );

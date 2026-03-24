@@ -71,10 +71,15 @@ export interface ElectronAPI {
   sendInput(id: string, data: string): void;
   closeSession(id: string): void;
   renameSession(id: string, name: string): void;
-  requestBuffer(id: string): void;
+  requestBuffer(id: string): Promise<Uint8Array[]>;
+  resizePty(id: string, cols: number, rows: number): void;
   selectDirectory(): Promise<string | null>;
   getRecentProjects(): Promise<{ path: string; name: string }[]>;
   setWindowTitle(title: string): void;
+  getPathForFile(file: File): string;
+  setAutoApproveGlobal(enabled: boolean): void;
+  getAutoApproveGlobal(): Promise<boolean>;
+  setAutoApproveSession(id: string, enabled: boolean): void;
   onSessionCreated(callback: (payload: SessionCreatedPayload) => void): () => void;
   onSessionData(callback: (payload: SessionDataPayload) => void): () => void;
   onSessionStatus(callback: (payload: SessionStatusPayload) => void): () => void;

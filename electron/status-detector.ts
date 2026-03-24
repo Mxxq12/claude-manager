@@ -5,7 +5,7 @@ export function stripAnsi(str: string): string {
 }
 
 const INPUT_PROMPT_REGEX = />\s*$/;
-const APPROVAL_KEYWORDS = /\b(Allow|allow|Yes\s*\/\s*No|yes\s*\/\s*no|approve|permission|y\/n)\b/i;
+const APPROVAL_KEYWORDS = /Do you want to (allow|proceed)|Allow .+\?\s*(Yes\s*\/\s*No|\(Y\)es|y\/n)|❯\s*1\.\s*Yes/i;
 
 export function detectPromptType(strippedOutput: string): 'input' | 'approval' | null {
   if (APPROVAL_KEYWORDS.test(strippedOutput)) {

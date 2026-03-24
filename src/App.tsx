@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Terminal } from './components/Terminal';
 import { StatusBar } from './components/StatusBar';
-import { InputBar } from './components/InputBar';
 import { useSessionStore } from './stores/session-store';
+import { themes, applyTheme, loadSavedTheme } from './themes';
+import type { Theme } from './themes';
 import type { SessionStatus } from './types';
 import './App.css';
 
@@ -25,6 +26,7 @@ export function App() {
   const sessions = useSessionStore((s) => s.sessions);
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;
 
+  const [currentTheme, setCurrentTheme] = useState<Theme>(loadSavedTheme);
   const [splitView, setSplitView] = useState(false);
   const [rightSessionId, setRightSessionId] = useState<string | null>(null);
   const rightSession = sessions.find((s) => s.id === rightSessionId) ?? null;
@@ -34,15 +36,35 @@ export function App() {
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
   const setExitCode = useSessionStore((s) => s.setExitCode);
 
-  // Update window title when active session changes
+  useEffect(() => { applyTheme(currentTheme); }, [currentTheme]);
+
+  const handleThemeChange = (name: string) => {
+    const t = themes.find((th) => th.name === name) || themes[0];
+    setCurrentTheme(t);
+    applyTheme(t);
+  };
+
+  // When toggling split, auto-pick the right pane session
+  const handleToggleSplit = () => {
+    if (!splitView) {
+      // Find a session different from active
+      const other = sessions.find((s) => s.id !== activeSessionId);
+      setRightSessionId(other?.id ?? null);
+    }
+    setSplitView((v) => !v);
+  };
+
+  // Update window title
   useEffect(() => {
     if (!window.electronAPI?.setWindowTitle) return;
-    if (activeSession) {
+    if (splitView && activeSession && rightSession) {
+      window.electronAPI.setWindowTitle(`${activeSession.name} | ${rightSession.name} - Claude Manager`);
+    } else if (activeSession) {
       window.electronAPI.setWindowTitle(`${activeSession.name} - Claude Manager`);
     } else {
       window.electronAPI.setWindowTitle('Claude Manager');
     }
-  }, [activeSession?.name, activeSessionId]);
+  }, [activeSession?.name, activeSessionId, rightSession?.name, rightSessionId, splitView]);
 
   useEffect(() => {
     if (!window.electronAPI) return;
@@ -92,23 +114,33 @@ export function App() {
     return () => window.removeEventListener('keydown', handler);
   }, [activeSessionId]);
 
-  // Clean up right pane session if it was removed
+  // Clean up right pane if session removed
   useEffect(() => {
     if (rightSessionId && !sessions.find((s) => s.id === rightSessionId)) {
       setRightSessionId(null);
     }
   }, [sessions, rightSessionId]);
 
+  // Close split if less than 2 sessions
+  useEffect(() => {
+    if (splitView && sessions.length < 2) {
+      setSplitView(false);
+    }
+  }, [sessions.length, splitView]);
+
   return (
     <div className="app">
+      <div className="titlebar-drag">Claude Manager</div>
       <Sidebar
         splitView={splitView}
-        onToggleSplit={() => setSplitView((v) => !v)}
+        onToggleSplit={handleToggleSplit}
+        currentTheme={currentTheme.name}
+        onThemeChange={handleThemeChange}
       />
       <div className={`main-panels ${splitView ? 'split' : ''}`}>
         <main className="main-area">
-          <Terminal sessionId={activeSessionId} />
-          <InputBar sessionId={activeSessionId} />
+          <Terminal sessionId={activeSessionId} theme={currentTheme} />
+
           <StatusBar session={activeSession} />
         </main>
         {splitView && (
@@ -120,13 +152,15 @@ export function App() {
                 onChange={(e) => setRightSessionId(e.target.value || null)}
               >
                 <option value="">-- 选择会话 --</option>
-                {sessions.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
+                {sessions
+                  .filter((s) => s.id !== activeSessionId)
+                  .map((s) => (
+                    <option key={s.id} value={s.id}>{s.name} - {s.cwd}</option>
+                  ))}
               </select>
             </div>
             <Terminal sessionId={rightSessionId} />
-            <InputBar sessionId={rightSessionId} />
+
             <StatusBar session={rightSession} />
           </main>
         )}

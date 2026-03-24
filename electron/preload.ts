@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 // Inline IPC constants to avoid cross-module import issues in preload
 const IPC = {
@@ -27,8 +27,11 @@ const api = {
   renameSession(id: string, name: string) {
     ipcRenderer.send(IPC.SESSION_RENAME, { id, name });
   },
-  requestBuffer(id: string) {
-    ipcRenderer.send(IPC.SESSION_REQUEST_BUFFER, { id });
+  async requestBuffer(id: string): Promise<Uint8Array[]> {
+    return ipcRenderer.invoke(IPC.SESSION_REQUEST_BUFFER, { id });
+  },
+  resizePty(id: string, cols: number, rows: number) {
+    ipcRenderer.send('session:resize', { id, cols, rows });
   },
   async selectDirectory() {
     return ipcRenderer.invoke('dialog:selectDirectory');
@@ -36,8 +39,31 @@ const api = {
   async getRecentProjects(): Promise<{ path: string; name: string }[]> {
     return ipcRenderer.invoke('get-recent-projects');
   },
+  async confirmAndCreateSession(filePath: string): Promise<boolean> {
+    return ipcRenderer.invoke('session:confirm-create', { filePath });
+  },
   setWindowTitle(title: string) {
     ipcRenderer.send('window:set-title', title);
+  },
+  getPathForFile(file: File): string {
+    return webUtils.getPathForFile(file);
+  },
+  setAutoApproveGlobal(enabled: boolean) {
+    ipcRenderer.send('auto-approve:set-global', enabled);
+  },
+  async getAutoApproveGlobal(): Promise<boolean> {
+    return ipcRenderer.invoke('auto-approve:get-global');
+  },
+  setAutoApproveSession(id: string, enabled: boolean) {
+    ipcRenderer.send('auto-approve:set-session', { id, enabled });
+  },
+  showSessionContextMenu(id: string, source?: string) {
+    ipcRenderer.send('session:context-menu', { id, source });
+  },
+  onClearTerminal(callback: (id: string) => void) {
+    const handler = (_: unknown, payload: { id: string }) => callback(payload.id);
+    ipcRenderer.on('session:clear-terminal', handler);
+    return () => ipcRenderer.removeListener('session:clear-terminal', handler);
   },
   onSessionCreated(callback: (payload: any) => void) {
     const handler = (_: unknown, payload: unknown) => callback(payload);

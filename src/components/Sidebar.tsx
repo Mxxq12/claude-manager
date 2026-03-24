@@ -1,7 +1,7 @@
-import { useMemo, useEffect, useState } from 'react';
+import { useMemo, useEffect, useState, useRef, useCallback } from 'react';
 import { useSessionStore } from '../stores/session-store';
 import { SessionCard } from './SessionCard';
-import { BatchCommandModal } from './BatchCommandModal';
+import { themes } from '../themes';
 import type { SessionStatus } from '../types';
 
 const statusOrder: Record<SessionStatus, number> = {
@@ -16,9 +16,11 @@ interface RecentProject {
 interface Props {
   splitView: boolean;
   onToggleSplit: () => void;
+  currentTheme: string;
+  onThemeChange: (name: string) => void;
 }
 
-export function Sidebar({ splitView, onToggleSplit }: Props) {
+export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange }: Props) {
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
@@ -26,7 +28,38 @@ export function Sidebar({ splitView, onToggleSplit }: Props) {
   const clearPreviousSession = useSessionStore((s) => s.clearPreviousSession);
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [previousHeight, setPreviousHeight] = useState(120);
+  const [recentHeight, setRecentHeight] = useState(150);
+  const [draggingHandle, setDraggingHandle] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const dragCounter = useRef(0);
+  const [autoApprove, setAutoApprove] = useState(false);
+
+  useEffect(() => {
+    if (window.electronAPI?.getAutoApproveGlobal) {
+      window.electronAPI.getAutoApproveGlobal().then(setAutoApprove);
+    }
+  }, []);
+
+  const makeHandleMouseDown = useCallback((target: 'previous' | 'recent') => (e: React.MouseEvent) => {
+    e.preventDefault();
+    setDraggingHandle(target);
+    const startY = e.clientY;
+    const startHeight = target === 'previous' ? previousHeight : recentHeight;
+    const setter = target === 'previous' ? setPreviousHeight : setRecentHeight;
+
+    const onMouseMove = (ev: MouseEvent) => {
+      const delta = startY - ev.clientY;
+      setter(Math.max(40, Math.min(startHeight + delta, window.innerHeight - 250)));
+    };
+    const onMouseUp = () => {
+      setDraggingHandle(null);
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [previousHeight, recentHeight]);
 
   const sortedSessions = useMemo(() =>
     [...sessions].sort((a, b) => {
@@ -35,7 +68,6 @@ export function Sidebar({ splitView, onToggleSplit }: Props) {
       return b.statusTimestamp - a.statusTimestamp;
     }), [sessions]);
 
-  // Status summary counts
   const statusCounts = useMemo(() => {
     let idle = 0, busy = 0, error = 0;
     for (const s of sessions) {
@@ -88,40 +120,61 @@ export function Sidebar({ splitView, onToggleSplit }: Props) {
     const session = sessions.find((s) => s.id === id);
     if (!session) return;
     const cwd = session.cwd;
-    // Remove the errored session
     window.electronAPI.closeSession(id);
     useSessionStore.getState().removeSession(id);
-    // Create a new session in the same directory
     window.electronAPI.createSession(cwd);
   };
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounter.current++;
+    setDragOver(true);
+  };
+  const handleDragLeave = () => {
+    dragCounter.current--;
+    if (dragCounter.current === 0) setDragOver(false);
+  };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounter.current = 0;
+    setDragOver(false);
+    const files = e.dataTransfer.files;
+    for (let i = 0; i < files.length; i++) {
+      const filePath = window.electronAPI.getPathForFile(files[i]);
+      if (filePath) {
+        window.electronAPI.confirmAndCreateSession(filePath);
+      }
+    }
+  };
+
   return (
-    <aside className="sidebar">
-      {/* Status summary */}
-      {sessions.length > 0 && (
-        <div className="status-summary">
-          <span title="空闲">🟢 {statusCounts.idle}</span>
-          <span title="忙碌">🔵 {statusCounts.busy}</span>
-          <span title="错误">🔴 {statusCounts.error}</span>
-        </div>
-      )}
-      <div className="sidebar-buttons">
-        <button className="new-session-btn" onClick={handleNewSession}>+ 新建会话</button>
-        <button
-          className={`split-btn ${splitView ? 'active' : ''}`}
-          onClick={onToggleSplit}
-          title={splitView ? '关闭分屏' : '开启分屏'}
-        >
-          分屏
-        </button>
+    <aside
+      className={`sidebar ${dragOver ? 'drag-over' : ''}`}
+      onDragOver={handleDragOver}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {dragOver && <div className="drop-overlay">拖放文件夹创建新会话</div>}
+      <div className="sidebar-toolbar">
+        <button className="toolbar-btn" onClick={handleNewSession}>+ 新建</button>
+        {sessions.length >= 2 && (
+          <>
+            <span className="toolbar-divider" />
+            <button
+              className={`toolbar-btn ${splitView ? 'active' : ''}`}
+              onClick={onToggleSplit}
+              title={splitView ? '关闭分屏' : '开启分屏'}
+            >
+              {splitView ? '单屏' : '分屏'}
+            </button>
+          </>
+        )}
       </div>
-      <button
-        className="batch-btn"
-        onClick={() => setShowBatchModal(true)}
-        disabled={sessions.filter((s) => s.status !== 'closed').length === 0}
-      >
-        批量指令
-      </button>
       <div className="session-list">
         {sortedSessions.map((session) => (
           <SessionCard
@@ -132,64 +185,80 @@ export function Sidebar({ splitView, onToggleSplit }: Props) {
             onClose={() => handleClose(session.id)}
             onRename={(name) => handleRename(session.id, name)}
             onRestart={() => handleRestart(session.id)}
+            onClearTerminal={() => window.dispatchEvent(new CustomEvent('clear-terminal', { detail: session.id }))}
           />
         ))}
       </div>
-      {/* Previous sessions from localStorage */}
       {previousSessions.length > 0 && (
-        <div className="recent-projects previous-sessions-section">
-          <div className="recent-projects-title">上次的会话</div>
-          <div className="recent-projects-list">
-            {previousSessions.map((s) => (
-              <div
-                key={s.cwd}
-                className="recent-project-item"
-                onClick={() => handleOpenPrevious(s.cwd)}
-                title={s.cwd}
-              >
-                <span className="recent-project-name">{s.name}</span>
-                <span className="recent-project-path">{s.cwd}</span>
-              </div>
-            ))}
+        <>
+          <div
+            className={`sidebar-resize-handle ${draggingHandle === 'previous' ? 'dragging' : ''}`}
+            onMouseDown={makeHandleMouseDown('previous')}
+          />
+          <div className="recent-projects previous-sessions-section" style={{ height: previousHeight, overflow: 'auto', flexShrink: 0 }}>
+            <div className="recent-projects-title">上次的会话</div>
+            <div className="recent-projects-list">
+              {previousSessions.map((s) => (
+                <div
+                  key={s.cwd}
+                  className="recent-project-item"
+                  onClick={() => handleOpenPrevious(s.cwd)}
+                  title={s.cwd}
+                >
+                  <span className="recent-project-name">{s.name}</span>
+                  <span className="recent-project-path">{s.cwd}</span>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        </>
       )}
       {recentProjects.length > 0 && (
-        <div className="recent-projects">
-          <div className="recent-projects-title">历史项目</div>
-          <div className="recent-search-wrapper">
-            <input
-              className="recent-search-input"
-              type="text"
-              placeholder="搜索项目..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+        <>
+          <div
+            className={`sidebar-resize-handle ${draggingHandle === 'recent' ? 'dragging' : ''}`}
+            onMouseDown={makeHandleMouseDown('recent')}
+          />
+          <div className="recent-projects" style={{ height: recentHeight, overflow: 'auto', flexShrink: 0 }}>
+            <div className="recent-projects-title">历史项目</div>
+            <div className="recent-search-wrapper">
+              <input
+                className="recent-search-input"
+                type="text"
+                placeholder="搜索项目..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+            <div className="recent-projects-list">
+              {filteredProjects.map((project) => (
+                <div
+                  key={project.path}
+                  className="recent-project-item"
+                  onClick={() => handleOpenRecent(project.path)}
+                  title={project.path}
+                >
+                  <span className="recent-project-name">{project.name}</span>
+                  <span className="recent-project-path">{project.path}</span>
+                </div>
+              ))}
+              {filteredProjects.length === 0 && searchQuery && (
+                <div className="recent-search-empty">无匹配项目</div>
+              )}
+            </div>
           </div>
-          <div className="recent-projects-list">
-            {filteredProjects.map((project) => (
-              <div
-                key={project.path}
-                className="recent-project-item"
-                onClick={() => handleOpenRecent(project.path)}
-                title={project.path}
-              >
-                <span className="recent-project-name">{project.name}</span>
-                <span className="recent-project-path">{project.path}</span>
-              </div>
-            ))}
-            {filteredProjects.length === 0 && searchQuery && (
-              <div className="recent-search-empty">无匹配项目</div>
-            )}
-          </div>
-        </div>
+        </>
       )}
-      {showBatchModal && (
-        <BatchCommandModal
-          sessions={sessions}
-          onClose={() => setShowBatchModal(false)}
-        />
-      )}
+      <div className="theme-selector">
+        <select
+          value={currentTheme}
+          onChange={(e) => onThemeChange(e.target.value)}
+        >
+          {themes.map((t) => (
+            <option key={t.name} value={t.name}>{t.label}</option>
+          ))}
+        </select>
+      </div>
     </aside>
   );
 }

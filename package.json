@@ -1,7 +1,7 @@
 {
   "name": "claude-manager",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.node.json && vite build",
@@ -15,10 +15,12 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@xterm/addon-canvas": "^0.7.0",
     "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^5.5.0",
+    "node-pty": "^1.1.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "xterm": "^5.3.0",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
@@ -28,7 +30,6 @@
     "@vitejs/plugin-react": "^6.0.1",
     "electron": "^41.0.3",
     "electron-builder": "^26.8.1",
-    "node-pty": "^1.1.0",
     "typescript": "^6.0.2",
     "vite": "^8.0.2",
     "vitest": "^3.2.4"

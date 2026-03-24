@@ -1,9 +1,27 @@
-import { app, BrowserWindow, ipcMain, dialog, Notification } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Notification, nativeImage, Menu } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import http from 'http';
+import { execSync } from 'child_process';
 import { SessionManager } from './session-manager';
+
+// Fix environment when launched from Finder (macOS doesn't inherit shell env vars like PATH, HTTPS_PROXY, etc.)
+if (process.platform === 'darwin' && !process.env.PATH?.includes('/opt/homebrew')) {
+  try {
+    const shellEnv = execSync('/bin/zsh -ilc "env"', { encoding: 'utf8' }).trim();
+    for (const line of shellEnv.split('\n')) {
+      const idx = line.indexOf('=');
+      if (idx > 0) {
+        const key = line.substring(0, idx);
+        const value = line.substring(idx + 1);
+        process.env[key] = value;
+      }
+    }
+  } catch (_) {
+    process.env.PATH = `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH}`;
+  }
+}
 
 const IPC = {
   SESSION_CREATE: 'session:create',
@@ -98,10 +116,21 @@ function setupClaudeHooks(port: number) {
 
 // --- Window ---
 function createWindow() {
+  const iconPath = path.join(__dirname, '../assets/icon.png');
+  const icon = nativeImage.createFromPath(iconPath);
+
+  if (process.platform === 'darwin' && !icon.isEmpty()) {
+    app.dock?.setIcon(icon);
+  }
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     title: 'Claude Manager',
+    icon: iconPath,
+    backgroundColor: '#181825',
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 12, y: 10 },
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -115,6 +144,10 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 }
+
+// Enable high-DPI support for Retina displays
+app.commandLine.appendSwitch('high-dpi-support', '1');
+app.commandLine.appendSwitch('force-device-scale-factor', '1');
 
 app.whenReady().then(async () => {
   const port = await startHookServer();
@@ -131,7 +164,13 @@ app.on('window-all-closed', () => {
 
 // IPC: Renderer -> Main
 ipcMain.on(IPC.SESSION_CREATE, (_, payload: { cwd: string }) => {
-  sessionManager.createSession(payload.cwd);
+  let cwd = payload.cwd;
+  try {
+    if (!fs.statSync(cwd).isDirectory()) {
+      cwd = path.dirname(cwd);
+    }
+  } catch {}
+  sessionManager.createSession(cwd);
 });
 
 ipcMain.on(IPC.SESSION_INPUT, (_, payload: { id: string; data: string }) => {
@@ -146,11 +185,38 @@ ipcMain.on(IPC.SESSION_RENAME, (_, payload: { id: string; name: string }) => {
   sessionManager.renameSession(payload.id, payload.name);
 });
 
-ipcMain.on(IPC.SESSION_REQUEST_BUFFER, (_, payload: { id: string }) => {
+ipcMain.on('session:resize', (_, payload: { id: string; cols: number; rows: number }) => {
+  sessionManager.resizePty(payload.id, payload.cols, payload.rows);
+});
+
+ipcMain.handle(IPC.SESSION_REQUEST_BUFFER, (_, payload: { id: string }) => {
   const buffer = sessionManager.getBuffer(payload.id);
-  for (const chunk of buffer) {
-    mainWindow?.webContents.send(IPC.SESSION_BUFFER_DATA, { id: payload.id, data: chunk });
+  return buffer;
+});
+
+ipcMain.handle('session:confirm-create', async (_, payload: { filePath: string }) => {
+  let cwd = payload.filePath;
+  try {
+    if (!fs.statSync(cwd).isDirectory()) {
+      cwd = path.dirname(cwd);
+    }
+  } catch {
+    return false;
   }
+  const result = await dialog.showMessageBox(mainWindow!, {
+    type: 'question',
+    buttons: ['取消', '创建'],
+    defaultId: 1,
+    cancelId: 0,
+    title: '新建会话',
+    message: `是否为以下项目创建新会话？`,
+    detail: cwd,
+  });
+  if (result.response === 1) {
+    sessionManager.createSession(cwd);
+    return true;
+  }
+  return false;
 });
 
 ipcMain.handle('dialog:selectDirectory', async () => {
@@ -189,19 +255,53 @@ ipcMain.on('window:set-title', (_, title: string) => {
   mainWindow?.setTitle(title);
 });
 
+ipcMain.on('auto-approve:set-global', (_, enabled: boolean) => {
+  sessionManager.setAutoApproveGlobal(enabled);
+});
+
+ipcMain.handle('auto-approve:get-global', () => {
+  return sessionManager.getAutoApproveGlobal();
+});
+
+ipcMain.on('auto-approve:set-session', (_, payload: { id: string; enabled: boolean }) => {
+  sessionManager.setAutoApproveSession(payload.id, payload.enabled);
+});
+
+ipcMain.on('session:context-menu', (_, payload: { id: string; source?: string }) => {
+  const items: Electron.MenuItemConstructorOptions[] = [];
+  if (payload.source === 'terminal') {
+    items.push({
+      label: '清除终端',
+      click: () => { mainWindow?.webContents.send('session:clear-terminal', { id: payload.id }); },
+    });
+  } else {
+    items.push({
+      label: '重命名',
+      click: () => { mainWindow?.webContents.send('session:rename-request', { id: payload.id }); },
+    });
+  }
+  Menu.buildFromTemplate(items).popup();
+});
+
 // SessionManager -> Renderer
+function safeSend(channel: string, payload: unknown) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, payload);
+  }
+}
+
 sessionManager.on('created', (payload) => {
-  mainWindow?.webContents.send(IPC.SESSION_CREATED, payload);
+  safeSend(IPC.SESSION_CREATED, payload);
 });
 
 sessionManager.on('data', (payload) => {
-  mainWindow?.webContents.send(IPC.SESSION_DATA, payload);
+  safeSend(IPC.SESSION_DATA, payload);
 });
 
 sessionManager.on('status', (payload) => {
-  mainWindow?.webContents.send(IPC.SESSION_STATUS, payload);
+  safeSend(IPC.SESSION_STATUS, payload);
 
-  if (payload.status === 'idle' && mainWindow && !mainWindow.isFocused()) {
+  if (payload.status === 'idle' && mainWindow && !mainWindow.isDestroyed() && !mainWindow.isFocused()) {
     const session = sessionManager.getSession(payload.id);
     if (session) {
       const body = payload.idleSubStatus === 'approval' ? '等待确认' : '任务完成';
@@ -212,5 +312,5 @@ sessionManager.on('status', (payload) => {
 });
 
 sessionManager.on('closed', (payload) => {
-  mainWindow?.webContents.send(IPC.SESSION_CLOSED, payload);
+  safeSend(IPC.SESSION_CLOSED, payload);
 });
