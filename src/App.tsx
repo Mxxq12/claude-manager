@@ -3,7 +3,21 @@ import { Sidebar } from './components/Sidebar';
 import { Terminal } from './components/Terminal';
 import { StatusBar } from './components/StatusBar';
 import { useSessionStore } from './stores/session-store';
+import type { SessionStatus } from './types';
 import './App.css';
+
+const statusOrder: Record<SessionStatus, number> = {
+  idle: 0, error: 1, busy: 2, starting: 3, created: 4, closed: 5,
+};
+
+function getSorted() {
+  const sessions = useSessionStore.getState().sessions;
+  return [...sessions].sort((a, b) => {
+    const diff = statusOrder[a.status] - statusOrder[b.status];
+    if (diff !== 0) return diff;
+    return b.statusTimestamp - a.statusTimestamp;
+  });
+}
 
 export function App() {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -15,6 +29,7 @@ export function App() {
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
 
   useEffect(() => {
+    if (!window.electronAPI) return;
     const offCreated = window.electronAPI.onSessionCreated((p) => addSession(p.id, p.name, p.cwd));
     const offStatus = window.electronAPI.onSessionStatus((p) => updateStatus(p.id, p.status, p.idleSubStatus, p.timestamp));
     const offClosed = window.electronAPI.onSessionClosed((p) => updateStatus(p.id, p.exitCode === 0 ? 'closed' : 'error', undefined, Date.now()));
@@ -23,13 +38,14 @@ export function App() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (!window.electronAPI) return;
       if (e.metaKey && e.key === 'n') {
         e.preventDefault();
         window.electronAPI.selectDirectory().then((cwd) => { if (cwd) window.electronAPI.createSession(cwd); });
       }
       if (e.metaKey && e.key >= '1' && e.key <= '9') {
         e.preventDefault();
-        const sorted = useSessionStore.getState().getSortedSessions();
+        const sorted = getSorted();
         const idx = parseInt(e.key) - 1;
         if (sorted[idx]) setActiveSession(sorted[idx].id);
       }
@@ -42,13 +58,13 @@ export function App() {
       }
       if (e.metaKey && e.key === '[') {
         e.preventDefault();
-        const sorted = useSessionStore.getState().getSortedSessions();
+        const sorted = getSorted();
         const idx = sorted.findIndex((s) => s.id === activeSessionId);
         if (idx > 0) setActiveSession(sorted[idx - 1].id);
       }
       if (e.metaKey && e.key === ']') {
         e.preventDefault();
-        const sorted = useSessionStore.getState().getSortedSessions();
+        const sorted = getSorted();
         const idx = sorted.findIndex((s) => s.id === activeSessionId);
         if (idx < sorted.length - 1) setActiveSession(sorted[idx + 1].id);
       }

@@ -6,17 +6,20 @@ const STATUS_INDICATOR: Record<string, string> = {
 
 function getStatusLabel(session: SessionInfo): string {
   if (session.status === 'idle') {
-    return session.idleSubStatus === 'approval' ? 'waiting approval' : 'idle';
+    return session.idleSubStatus === 'approval' ? '等待确认' : '空闲';
   }
-  return session.status;
+  const labels: Record<string, string> = {
+    busy: '忙碌', starting: '启动中', error: '错误', closed: '已关闭', created: '已创建',
+  };
+  return labels[session.status] ?? session.status;
 }
 
 function getElapsedTime(timestamp: number): string {
   const seconds = Math.floor((Date.now() - timestamp) / 1000);
-  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 60) return `${seconds}秒`;
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  return `${Math.floor(minutes / 60)}h`;
+  if (minutes < 60) return `${minutes}分钟`;
+  return `${Math.floor(minutes / 60)}小时`;
 }
 
 interface Props {
@@ -32,7 +35,7 @@ export function SessionCard({ session, isActive, onClick, onClose, onRename }: P
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
-    const name = prompt('Rename session:', session.name);
+    const name = prompt('重命名会话:', session.name);
     if (name) onRename(name);
   };
 

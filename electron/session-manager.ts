@@ -2,8 +2,9 @@ import * as pty from 'node-pty';
 import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
 import path from 'path';
-import { StatusDetector } from './status-detector';
-import type { SessionStatus, IdleSubStatus } from '../src/types';
+
+type SessionStatus = 'created' | 'starting' | 'idle' | 'busy' | 'error' | 'closed';
+type IdleSubStatus = 'input' | 'approval';
 
 interface Session {
   id: string;
@@ -15,43 +16,34 @@ interface Session {
   statusTimestamp: number;
   outputBuffer: Uint8Array[];
   bufferSize: number;
-  statusDetector: StatusDetector;
 }
 
 const MAX_BUFFER_BYTES = 5_000_000;
 
 export class SessionManager extends EventEmitter {
   private sessions = new Map<string, Session>();
+  private hookServerPort: number = 0;
+
+  setHookServerPort(port: number) {
+    this.hookServerPort = port;
+  }
 
   createSession(cwd: string): string {
     const id = randomUUID();
     const name = path.basename(cwd);
 
-    const ptyProcess = pty.spawn('claude', [], {
+    const env: Record<string, string> = {
+      ...(process.env as Record<string, string>),
+      CLAUDE_MANAGER_PORT: String(this.hookServerPort),
+      CLAUDE_MANAGER_SESSION_ID: id,
+    };
+
+    const ptyProcess = pty.spawn('claude', ['--dangerously-skip-permissions', '--permission-mode', 'bypassPermissions'], {
       name: 'xterm-256color',
       cwd,
       cols: 120,
       rows: 30,
-      env: { ...process.env } as Record<string, string>,
-    });
-
-    const statusDetector = new StatusDetector((status, subStatus) => {
-      const session = this.sessions.get(id);
-      if (!session) return;
-
-      const newStatus: SessionStatus = status === 'busy' ? 'busy' : 'idle';
-      if (session.status === newStatus && session.idleSubStatus === subStatus) return;
-
-      session.status = newStatus;
-      session.idleSubStatus = subStatus;
-      session.statusTimestamp = Date.now();
-
-      this.emit('status', {
-        id,
-        status: newStatus,
-        idleSubStatus: subStatus,
-        timestamp: session.statusTimestamp,
-      });
+      env,
     });
 
     const session: Session = {
@@ -59,11 +51,10 @@ export class SessionManager extends EventEmitter {
       name,
       cwd,
       pty: ptyProcess,
-      status: 'starting',
+      status: 'idle',
       statusTimestamp: Date.now(),
       outputBuffer: [],
       bufferSize: 0,
-      statusDetector,
     };
 
     ptyProcess.onData((data: string) => {
@@ -77,7 +68,6 @@ export class SessionManager extends EventEmitter {
       }
 
       this.emit('data', { id, data: bytes });
-      statusDetector.onData(data);
     });
 
     ptyProcess.onExit(({ exitCode }) => {
@@ -85,13 +75,30 @@ export class SessionManager extends EventEmitter {
       if (!s) return;
       s.status = exitCode === 0 ? 'closed' : 'error';
       s.statusTimestamp = Date.now();
-      s.statusDetector.dispose();
       this.emit('closed', { id, exitCode });
     });
 
     this.sessions.set(id, session);
     this.emit('created', { id, name, cwd });
     return id;
+  }
+
+  // Called by hook HTTP server
+  setSessionStatus(id: string, status: 'idle' | 'busy', subStatus?: IdleSubStatus): void {
+    const session = this.sessions.get(id);
+    if (!session) return;
+    if (session.status === status && session.idleSubStatus === subStatus) return;
+
+    session.status = status;
+    session.idleSubStatus = subStatus;
+    session.statusTimestamp = Date.now();
+
+    this.emit('status', {
+      id,
+      status,
+      idleSubStatus: subStatus,
+      timestamp: session.statusTimestamp,
+    });
   }
 
   sendInput(id: string, data: string): void {
@@ -101,7 +108,6 @@ export class SessionManager extends EventEmitter {
   closeSession(id: string): void {
     const session = this.sessions.get(id);
     if (!session) return;
-    session.statusDetector.dispose();
     session.pty.kill();
     this.sessions.delete(id);
   }
@@ -133,7 +139,6 @@ export class SessionManager extends EventEmitter {
 
   dispose(): void {
     for (const session of this.sessions.values()) {
-      session.statusDetector.dispose();
       session.pty.kill();
     }
     this.sessions.clear();

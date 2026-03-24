@@ -71,6 +71,7 @@ export interface ElectronAPI {
   renameSession(id: string, name: string): void;
   requestBuffer(id: string): void;
   selectDirectory(): Promise<string | null>;
+  getRecentProjects(): Promise<{ path: string; name: string }[]>;
   onSessionCreated(callback: (payload: SessionCreatedPayload) => void): () => void;
   onSessionData(callback: (payload: SessionDataPayload) => void): () => void;
   onSessionStatus(callback: (payload: SessionStatusPayload) => void): () => void;

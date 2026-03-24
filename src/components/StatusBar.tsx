@@ -12,9 +12,9 @@ export function StatusBar({ session }: Props) {
     if (!session) return;
     const update = () => {
       const seconds = Math.floor((Date.now() - session.statusTimestamp) / 1000);
-      if (seconds < 60) setElapsed(`${seconds}s`);
-      else if (seconds < 3600) setElapsed(`${Math.floor(seconds / 60)}m`);
-      else setElapsed(`${Math.floor(seconds / 3600)}h`);
+      if (seconds < 60) setElapsed(`${seconds}秒`);
+      else if (seconds < 3600) setElapsed(`${Math.floor(seconds / 60)}分钟`);
+      else setElapsed(`${Math.floor(seconds / 3600)}小时`);
     };
     update();
     const interval = setInterval(update, 1000);
@@ -24,9 +24,11 @@ export function StatusBar({ session }: Props) {
   if (!session) return <footer className="status-bar" />;
 
   const statusLabel = session.status === 'idle'
-    ? (session.idleSubStatus === 'approval' ? '🟡 waiting approval' : '🟢 idle')
-    : session.status === 'busy' ? '🔵 busy'
-    : session.status === 'error' ? '🔴 error'
+    ? (session.idleSubStatus === 'approval' ? '🟡 等待确认' : '🟢 空闲')
+    : session.status === 'busy' ? '🔵 忙碌'
+    : session.status === 'error' ? '🔴 错误'
+    : session.status === 'closed' ? '已关闭'
+    : session.status === 'starting' ? '启动中'
     : session.status;
 
   return (

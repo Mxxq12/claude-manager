@@ -19,48 +19,56 @@ export function detectPromptType(strippedOutput: string): 'input' | 'approval' |
 
 export class StatusDetector {
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
-  private approvalTimer: ReturnType<typeof setTimeout> | null = null;
   private recentOutput: string = '';
+  private currentStatus: 'busy' | 'idle' = 'idle';
   private onStatusChange: (status: 'busy' | 'idle', subStatus?: 'input' | 'approval') => void;
+  private significantDataReceived: boolean = false;
 
   constructor(onStatusChange: (status: 'busy' | 'idle', subStatus?: 'input' | 'approval') => void) {
     this.onStatusChange = onStatusChange;
   }
 
   onData(rawData: string): void {
+    // Ignore tiny outputs (cursor blinks, status line updates, etc.)
+    const stripped = stripAnsi(rawData);
+    if (stripped.length <= 2 && !stripped.includes('\n')) {
+      // Still reset idle timer for tiny outputs, but don't flip to busy
+      this.resetIdleTimer();
+      return;
+    }
+
     this.recentOutput += rawData;
     if (this.recentOutput.length > 2000) {
       this.recentOutput = this.recentOutput.slice(-2000);
     }
 
-    this.onStatusChange('busy');
-    this.resetTimers();
+    this.significantDataReceived = true;
 
-    this.approvalTimer = setTimeout(() => {
-      const stripped = stripAnsi(this.recentOutput);
-      const lastLines = stripped.split('\n').slice(-5).join('\n');
-      const type = detectPromptType(lastLines);
-      if (type === 'approval') {
-        this.onStatusChange('idle', 'approval');
-      }
-    }, 1000);
+    if (this.currentStatus !== 'busy') {
+      this.currentStatus = 'busy';
+      this.onStatusChange('busy');
+    }
 
-    this.idleTimer = setTimeout(() => {
-      const stripped = stripAnsi(this.recentOutput);
-      const lastLines = stripped.split('\n').slice(-5).join('\n');
-      const type = detectPromptType(lastLines);
-      if (type === 'input') {
-        this.onStatusChange('idle', 'input');
-      }
-    }, 2000);
+    this.resetIdleTimer();
   }
 
-  private resetTimers(): void {
+  private resetIdleTimer(): void {
     if (this.idleTimer) clearTimeout(this.idleTimer);
-    if (this.approvalTimer) clearTimeout(this.approvalTimer);
+
+    this.idleTimer = setTimeout(() => {
+      if (this.currentStatus === 'busy') {
+        // Check what kind of idle state
+        const stripped = stripAnsi(this.recentOutput);
+        const lastLines = stripped.split('\n').slice(-5).join('\n');
+        const type = detectPromptType(lastLines);
+
+        this.currentStatus = 'idle';
+        this.onStatusChange('idle', type ?? 'input');
+      }
+    }, 3000); // 3 seconds of no significant output = idle
   }
 
   dispose(): void {
-    this.resetTimers();
+    if (this.idleTimer) clearTimeout(this.idleTimer);
   }
 }

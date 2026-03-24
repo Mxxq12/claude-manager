@@ -104,3 +104,48 @@ html, body, #root {
   color: #6c7086;
 }
 .status-bar-name { font-weight: 600; color: #cdd6f4; }
+
+/* Recent Projects */
+.recent-projects {
+  border-top: 1px solid #313244;
+  padding: 8px 0;
+  max-height: 40%;
+  overflow-y: auto;
+}
+
+.recent-projects-title {
+  padding: 4px 12px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6c7086;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.recent-projects-list {
+  padding: 0 8px;
+}
+
+.recent-project-item {
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.recent-project-item:hover { background: #313244; }
+
+.recent-project-name {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: #cdd6f4;
+}
+
+.recent-project-path {
+  display: block;
+  font-size: 10px;
+  color: #6c7086;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

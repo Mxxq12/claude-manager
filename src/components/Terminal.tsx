@@ -12,11 +12,11 @@ export function Terminal({ sessionId }: Props) {
   const xtermRef = useRef<XTerm | null>(null);
 
   useEffect(() => {
-    if (!containerRef.current || !sessionId) return;
+    if (!containerRef.current || !sessionId || !window.electronAPI) return;
 
     const xterm = new XTerm({
       cursorBlink: true,
-      fontSize: 14,
+      fontSize: 12,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
       theme: { background: '#1e1e2e', foreground: '#cdd6f4', cursor: '#f5e0dc' },
     });
@@ -55,7 +55,7 @@ export function Terminal({ sessionId }: Props) {
   }, [sessionId]);
 
   if (!sessionId) {
-    return <div className="terminal-empty"><p>No session selected. Click "+ New Session" to start.</p></div>;
+    return <div className="terminal-empty"><p>未选择会话，点击"+ 新建会话"开始</p></div>;
   }
 
   return <div ref={containerRef} className="terminal-container" />;

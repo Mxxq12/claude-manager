@@ -17,7 +17,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   activeSessionId: null,
   addSession: (id, name, cwd) =>
     set((state) => ({
-      sessions: [...state.sessions, { id, name, cwd, status: 'starting', statusTimestamp: Date.now() }],
+      sessions: [...state.sessions, { id, name, cwd, status: 'idle', statusTimestamp: Date.now() }],
       activeSessionId: state.activeSessionId ?? id,
     })),
   updateStatus: (id, status, idleSubStatus, timestamp) =>
