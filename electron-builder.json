@@ -1,0 +1,7 @@
+{
+  "appId": "com.claude-manager.app",
+  "productName": "Claude Manager",
+  "directories": { "output": "release" },
+  "files": ["dist/**/*", "dist-electron/**/*"],
+  "mac": { "target": "dmg" }
+}
