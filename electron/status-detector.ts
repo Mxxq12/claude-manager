@@ -68,6 +68,16 @@ export class StatusDetector {
     }, 3000); // 3 seconds of no significant output = idle
   }
 
+  reset(): void {
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
+    this.recentOutput = '';
+    this.currentStatus = 'idle';
+    this.significantDataReceived = false;
+  }
+
   dispose(): void {
     if (this.idleTimer) clearTimeout(this.idleTimer);
   }

@@ -6,15 +6,27 @@ const PERSISTED_SESSIONS_KEY = 'claude-manager-session-cwds';
 function loadPersistedSessions(): { cwd: string; name: string }[] {
   try {
     const raw = localStorage.getItem(PERSISTED_SESSIONS_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const list: { cwd: string; name: string }[] = raw ? JSON.parse(raw) : [];
+    const seen = new Set<string>();
+    return list.filter((s) => {
+      if (seen.has(s.cwd)) return false;
+      seen.add(s.cwd);
+      return true;
+    });
   } catch {
     return [];
   }
 }
 
 function persistSessions(sessions: SessionInfo[]) {
+  const seen = new Set<string>();
   const data = sessions
     .filter((s) => s.status !== 'closed')
+    .filter((s) => {
+      if (seen.has(s.cwd)) return false;
+      seen.add(s.cwd);
+      return true;
+    })
     .map((s) => ({ cwd: s.cwd, name: s.name }));
   localStorage.setItem(PERSISTED_SESSIONS_KEY, JSON.stringify(data));
 }

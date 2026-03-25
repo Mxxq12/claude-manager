@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { WebLinksAddon } from '@xterm/addon-web-links';
 import { loadSavedTheme } from '../themes';
 import type { Theme } from '../themes';
 import '@xterm/xterm/css/xterm.css';
@@ -25,6 +26,12 @@ export function Terminal({ sessionId, theme }: Props) {
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
 
+  // Separate effect: update theme without recreating terminal
+  useEffect(() => {
+    if (!xtermRef.current || !theme) return;
+    xtermRef.current.options.theme = theme.terminal;
+  }, [theme]);
+
   useEffect(() => {
     if (!containerRef.current || !sessionId || !window.electronAPI) return;
 
@@ -42,7 +49,45 @@ export function Terminal({ sessionId, theme }: Props) {
 
     const fitAddon = new FitAddon();
     xterm.loadAddon(fitAddon);
+    xterm.loadAddon(new WebLinksAddon((_, uri) => {
+      window.electronAPI.openExternal(uri);
+    }));
     xterm.open(containerRef.current);
+
+    // Register path link provider - only match standalone paths (not part of commands)
+    const pathRegex = /(~\/[^\s'",)}\]]+|\/(?:Users|home|tmp|var|opt|etc)[^\s'",)}\]]+)/;
+    xterm.registerLinkProvider({
+      provideLinks(lineNumber, callback) {
+        const line = xterm.buffer.active.getLine(lineNumber - 1);
+        if (!line) { callback(undefined); return; }
+        const text = line.translateToString();
+        const match = pathRegex.exec(text);
+        if (match) {
+          const before = text.substring(0, match.index).trim();
+          if (before && /[a-zA-Z0-9_-]$/.test(before)) {
+            callback(undefined);
+            return;
+          }
+          // Convert char index to column index (account for wide chars like CJK)
+          let startCol = 0;
+          for (let i = 0; i < match.index; i++) {
+            const code = text.charCodeAt(i);
+            startCol += (code > 0x7F && code < 0xFFFF) ? 2 : 1;
+          }
+          const endCol = startCol + match[0].length;
+          callback([{
+            range: { start: { x: startCol + 1, y: lineNumber }, end: { x: endCol, y: lineNumber } },
+            text: match[0],
+            activate(_event, text) {
+              window.electronAPI.openPath(text);
+            },
+          }]);
+        } else {
+          callback(undefined);
+        }
+      },
+    });
+
     fitAddon.fit();
     xtermRef.current = xterm;
     fitAddonRef.current = fitAddon;
@@ -53,12 +98,23 @@ export function Terminal({ sessionId, theme }: Props) {
       window.electronAPI.resizePty(sessionId, xterm.cols, xterm.rows);
     }, 100);
 
-    // Replay buffer (invoke returns directly, no broadcast)
+    // Replay buffer with batching to avoid UI jank on large buffers
     window.electronAPI.requestBuffer(sessionId).then((buffer) => {
-      if (buffer) {
-        for (const chunk of buffer) {
-          xterm.write(new Uint8Array(chunk));
-        }
+      if (buffer && buffer.length > 0) {
+        let i = 0;
+        const BATCH_SIZE = 50;
+        const writeBatch = () => {
+          const end = Math.min(i + BATCH_SIZE, buffer.length);
+          for (; i < end; i++) {
+            xterm.write(new Uint8Array(buffer[i]));
+          }
+          if (i < buffer.length) {
+            requestAnimationFrame(writeBatch);
+          } else {
+            xterm.scrollToBottom();
+          }
+        };
+        requestAnimationFrame(writeBatch);
       }
       xterm.scrollToBottom();
       setTimeout(() => xterm.scrollToBottom(), 100);
@@ -155,7 +211,7 @@ export function Terminal({ sessionId, theme }: Props) {
       xtermRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [sessionId, theme]);
+  }, [sessionId]);
 
   const handleTerminalDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();

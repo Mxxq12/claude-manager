@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Component } from 'react';
+import type { ReactNode, ErrorInfo } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Terminal } from './components/Terminal';
 import { StatusBar } from './components/StatusBar';
@@ -7,6 +8,43 @@ import { themes, applyTheme, loadSavedTheme } from './themes';
 import type { Theme } from './themes';
 import type { SessionStatus } from './types';
 import './App.css';
+
+// Error Boundary to catch React rendering errors
+class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('React Error Boundary caught an error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 40, color: '#cdd6f4', background: '#1e1e2e', height: '100vh', fontFamily: 'sans-serif' }}>
+          <h1 style={{ color: '#f38ba8' }}>应用出错了</h1>
+          <p>发生了意外错误，请尝试重启应用。</p>
+          <pre style={{ background: '#313244', padding: 16, borderRadius: 8, overflow: 'auto', maxHeight: 200 }}>
+            {this.state.error?.message}
+          </pre>
+          <button
+            onClick={() => this.setState({ hasError: false, error: null })}
+            style={{ marginTop: 16, padding: '8px 16px', background: '#89b4fa', color: '#1e1e2e', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+          >
+            重试
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const statusOrder: Record<SessionStatus, number> = {
   idle: 0, error: 1, busy: 2, starting: 3, created: 4, closed: 5,
@@ -74,7 +112,10 @@ export function App() {
       updateStatus(p.id, p.exitCode === 0 ? 'closed' : 'error', undefined, Date.now());
       setExitCode(p.id, p.exitCode);
     });
-    return () => { offCreated(); offStatus(); offClosed(); };
+    const offSwitch = window.electronAPI.onSwitchTo?.((id) => {
+      setActiveSession(id);
+    });
+    return () => { offCreated(); offStatus(); offClosed(); offSwitch?.(); };
   }, []);
 
   useEffect(() => {
@@ -129,6 +170,7 @@ export function App() {
   }, [sessions.length, splitView]);
 
   return (
+    <ErrorBoundary>
     <div className="app">
       <div className="titlebar-drag">Claude Manager</div>
       <Sidebar
@@ -166,5 +208,6 @@ export function App() {
         )}
       </div>
     </div>
+    </ErrorBoundary>
   );
 }

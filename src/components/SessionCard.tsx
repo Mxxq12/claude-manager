@@ -54,7 +54,8 @@ export function SessionCard({ session, isActive, onClick, onClose, onRename, onR
 
   const handleClose = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const msg = session.status === 'busy'
+    const isActive = session.status === 'busy' || session.status === 'starting' || session.status === 'created';
+    const msg = isActive
       ? `确认关闭会话 '${session.name}'？正在运行的任务将被终止`
       : `确认关闭会话 '${session.name}'？`;
     if (!window.confirm(msg)) return;
@@ -136,7 +137,7 @@ export function SessionCard({ session, isActive, onClick, onClose, onRename, onR
           }}
           title={autoApprove ? '关闭自动审批' : '开启自动审批'}
         >
-          {autoApprove ? '自动' : '自动'}
+          {autoApprove ? '自动中' : '自动'}
         </button>
       </div>
     </div>

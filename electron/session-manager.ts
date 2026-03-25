@@ -50,6 +50,13 @@ export class SessionManager extends EventEmitter {
     this.hookServerPort = port;
   }
 
+  getSessionIdForCwd(cwd: string): string | null {
+    for (const session of this.sessions.values()) {
+      if (session.cwd === cwd && session.status !== 'closed') return session.id;
+    }
+    return null;
+  }
+
   createSession(cwd: string): string {
     const id = randomUUID();
     const name = path.basename(cwd);
@@ -62,21 +69,41 @@ export class SessionManager extends EventEmitter {
 
     // Resolve claude path - needed when launched from Finder where PATH is limited
     const claudePath = (() => {
-      const candidates = ['/opt/homebrew/bin/claude', '/usr/local/bin/claude'];
+      const fs = require('fs');
+      const { execSync } = require('child_process');
+      const home = process.env.HOME || require('os').homedir();
+      const candidates = [
+        '/opt/homebrew/bin/claude',
+        '/usr/local/bin/claude',
+        `${home}/.npm-global/bin/claude`,
+        `${home}/.nvm/versions/node/current/bin/claude`,
+        '/opt/local/bin/claude',
+      ];
       for (const c of candidates) {
-        try { if (require('fs').existsSync(c)) return c; } catch {}
+        try { if (fs.existsSync(c)) return c; } catch {}
       }
+      // Fallback: try `which claude`
+      try {
+        const resolved = execSync('which claude', { encoding: 'utf8', timeout: 3000 }).trim();
+        if (resolved && fs.existsSync(resolved)) return resolved;
+      } catch {}
       return 'claude';
     })();
 
     const shell = process.env.SHELL || '/bin/zsh';
-    const ptyProcess = pty.spawn(shell, ['-l'], {
-      name: 'xterm-256color',
-      cwd,
-      cols: 120,
-      rows: 30,
-      env,
-    });
+    let ptyProcess: pty.IPty;
+    try {
+      ptyProcess = pty.spawn(shell, ['-l'], {
+        name: 'xterm-256color',
+        cwd,
+        cols: 120,
+        rows: 30,
+        env,
+      });
+    } catch (err) {
+      this.emit('error', { id, message: `PTY 启动失败: ${(err as Error).message}` });
+      throw err;
+    }
 
     // Launch claude inside the shell, clear the command from terminal history/display
     ptyProcess.write(`clear && ${claudePath} --dangerously-skip-permissions --permission-mode bypassPermissions\r`);

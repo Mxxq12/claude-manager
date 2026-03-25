@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, Notification, nativeImage, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Notification, nativeImage, Menu, shell } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -74,10 +74,19 @@ function setupClaudeHooks(port: number) {
   const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
   let settings: any = {};
   try {
-    settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-  } catch {}
+    const raw = fs.readFileSync(settingsPath, 'utf-8');
+    settings = JSON.parse(raw);
+    if (typeof settings !== 'object' || settings === null || Array.isArray(settings)) {
+      console.error('settings.json is not a valid object, resetting hooks section');
+      settings = {};
+    }
+  } catch (err) {
+    console.warn('Could not read settings.json, will create:', (err as Error).message);
+  }
 
-  if (!settings.hooks) settings.hooks = {};
+  if (!settings.hooks || typeof settings.hooks !== 'object' || Array.isArray(settings.hooks)) {
+    settings.hooks = {};
+  }
 
   const stopHookCmd = `[ -n "$CLAUDE_MANAGER_PORT" ] && curl -s "http://127.0.0.1:$CLAUDE_MANAGER_PORT/idle/$CLAUDE_MANAGER_SESSION_ID" || true`;
   const busyHookCmd = `[ -n "$CLAUDE_MANAGER_PORT" ] && curl -s "http://127.0.0.1:$CLAUDE_MANAGER_PORT/busy/$CLAUDE_MANAGER_SESSION_ID" || true`;
@@ -88,7 +97,7 @@ function setupClaudeHooks(port: number) {
     hookArray?.some((h: any) => h.hooks?.some((hh: any) => hh.command?.includes('CLAUDE_MANAGER_PORT')));
 
   // Stop hook -> idle
-  if (!settings.hooks.Stop) settings.hooks.Stop = [];
+  if (!Array.isArray(settings.hooks.Stop)) settings.hooks.Stop = [];
   if (!hasManagerHook(settings.hooks.Stop)) {
     settings.hooks.Stop.push({
       hooks: [{ type: 'command', command: stopHookCmd, timeout: 5 }],
@@ -96,7 +105,7 @@ function setupClaudeHooks(port: number) {
   }
 
   // UserPromptSubmit hook -> busy
-  if (!settings.hooks.UserPromptSubmit) settings.hooks.UserPromptSubmit = [];
+  if (!Array.isArray(settings.hooks.UserPromptSubmit)) settings.hooks.UserPromptSubmit = [];
   if (!hasManagerHook(settings.hooks.UserPromptSubmit)) {
     settings.hooks.UserPromptSubmit.push({
       hooks: [{ type: 'command', command: busyHookCmd, timeout: 5 }],
@@ -104,14 +113,23 @@ function setupClaudeHooks(port: number) {
   }
 
   // PermissionRequest hook -> approval
-  if (!settings.hooks.PermissionRequest) settings.hooks.PermissionRequest = [];
+  if (!Array.isArray(settings.hooks.PermissionRequest)) settings.hooks.PermissionRequest = [];
   if (!hasManagerHook(settings.hooks.PermissionRequest)) {
     settings.hooks.PermissionRequest.push({
       hooks: [{ type: 'command', command: approvalHookCmd, timeout: 5 }],
     });
   }
 
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+  try {
+    // Ensure .claude directory exists
+    const claudeDir = path.join(os.homedir(), '.claude');
+    if (!fs.existsSync(claudeDir)) {
+      fs.mkdirSync(claudeDir, { recursive: true });
+    }
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+  } catch (err) {
+    console.error('Failed to write settings.json:', (err as Error).message);
+  }
 }
 
 // --- Window ---
@@ -170,18 +188,26 @@ ipcMain.on(IPC.SESSION_CREATE, (_, payload: { cwd: string }) => {
       cwd = path.dirname(cwd);
     }
   } catch {}
+  const existingId = sessionManager.getSessionIdForCwd(cwd);
+  if (existingId) {
+    safeSend('session:switch-to', { id: existingId });
+    return;
+  }
   sessionManager.createSession(cwd);
 });
 
 ipcMain.on(IPC.SESSION_INPUT, (_, payload: { id: string; data: string }) => {
+  if (!payload.id || !sessionManager.getSession(payload.id)) return;
   sessionManager.sendInput(payload.id, payload.data);
 });
 
 ipcMain.on(IPC.SESSION_CLOSE, (_, payload: { id: string }) => {
+  if (!payload.id) return;
   sessionManager.closeSession(payload.id);
 });
 
 ipcMain.on(IPC.SESSION_RENAME, (_, payload: { id: string; name: string }) => {
+  if (!payload.id || !payload.name || !sessionManager.getSession(payload.id)) return;
   sessionManager.renameSession(payload.id, payload.name);
 });
 
@@ -213,7 +239,12 @@ ipcMain.handle('session:confirm-create', async (_, payload: { filePath: string }
     detail: cwd,
   });
   if (result.response === 1) {
-    sessionManager.createSession(cwd);
+    const existingId = sessionManager.getSessionIdForCwd(cwd);
+    if (existingId) {
+      safeSend('session:switch-to', { id: existingId });
+    } else {
+      sessionManager.createSession(cwd);
+    }
     return true;
   }
   return false;
@@ -235,7 +266,10 @@ ipcMain.handle('get-recent-projects', async () => {
         const projectPath = '/' + entry.replace(/^-/, '').replace(/-/g, '/');
         const name = path.basename(projectPath);
         try {
-          fs.accessSync(projectPath);
+          // Validate path exists and is a directory on disk
+          if (!fs.existsSync(projectPath) || !fs.statSync(projectPath).isDirectory()) {
+            return null;
+          }
           const stat = fs.statSync(path.join(projectsDir, entry));
           return { path: projectPath, name, mtime: stat.mtimeMs };
         } catch {
@@ -281,6 +315,15 @@ ipcMain.on('session:context-menu', (_, payload: { id: string; source?: string })
     });
   }
   Menu.buildFromTemplate(items).popup();
+});
+
+ipcMain.on('shell:open-path', (_, payload: { path: string }) => {
+  const resolved = payload.path.startsWith('~') ? payload.path.replace('~', os.homedir()) : payload.path;
+  shell.openPath(resolved);
+});
+
+ipcMain.on('shell:open-external', (_, payload: { url: string }) => {
+  shell.openExternal(payload.url);
 });
 
 // SessionManager -> Renderer

@@ -60,6 +60,17 @@ const api = {
   showSessionContextMenu(id: string, source?: string) {
     ipcRenderer.send('session:context-menu', { id, source });
   },
+  openPath(p: string) {
+    ipcRenderer.send('shell:open-path', { path: p });
+  },
+  openExternal(url: string) {
+    ipcRenderer.send('shell:open-external', { url });
+  },
+  onSwitchTo(callback: (id: string) => void) {
+    const handler = (_: unknown, payload: { id: string }) => callback(payload.id);
+    ipcRenderer.on('session:switch-to', handler);
+    return () => ipcRenderer.removeListener('session:switch-to', handler);
+  },
   onClearTerminal(callback: (id: string) => void) {
     const handler = (_: unknown, payload: { id: string }) => callback(payload.id);
     ipcRenderer.on('session:clear-terminal', handler);

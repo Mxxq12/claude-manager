@@ -377,6 +377,15 @@ html, body, #root {
 .theme-selector {
   padding: 8px 10px;
   border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.theme-label {
+  font-size: 11px;
+  color: var(--text-muted, var(--text));
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .theme-selector select {
   width: 100%;

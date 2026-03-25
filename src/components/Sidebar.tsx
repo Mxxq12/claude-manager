@@ -28,11 +28,18 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
   const clearPreviousSession = useSessionStore((s) => s.clearPreviousSession);
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [previousHeight, setPreviousHeight] = useState(120);
-  const [recentHeight, setRecentHeight] = useState(150);
+  const [previousHeight, setPreviousHeight] = useState(() => {
+    const saved = localStorage.getItem('claude-manager-previous-height');
+    return saved ? parseInt(saved, 10) : 120;
+  });
+  const [recentHeight, setRecentHeight] = useState(() => {
+    const saved = localStorage.getItem('claude-manager-recent-height');
+    return saved ? parseInt(saved, 10) : 150;
+  });
   const [draggingHandle, setDraggingHandle] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const dragCounter = useRef(0);
+  const dragCleanupRef = useRef<(() => void) | null>(null);
   const [autoApprove, setAutoApprove] = useState(false);
 
   useEffect(() => {
@@ -48,18 +55,37 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
     const startHeight = target === 'previous' ? previousHeight : recentHeight;
     const setter = target === 'previous' ? setPreviousHeight : setRecentHeight;
 
+    const storageKey = target === 'previous' ? 'claude-manager-previous-height' : 'claude-manager-recent-height';
     const onMouseMove = (ev: MouseEvent) => {
       const delta = startY - ev.clientY;
-      setter(Math.max(40, Math.min(startHeight + delta, window.innerHeight - 250)));
+      const newHeight = Math.max(40, Math.min(startHeight + delta, window.innerHeight - 250));
+      setter(newHeight);
+      localStorage.setItem(storageKey, String(newHeight));
     };
     const onMouseUp = () => {
       setDraggingHandle(null);
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      dragCleanupRef.current = null;
+    };
+    // Store cleanup so it can be called on unmount
+    dragCleanupRef.current = () => {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
     };
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
   }, [previousHeight, recentHeight]);
+
+  // Cleanup drag listeners on unmount
+  useEffect(() => {
+    return () => {
+      if (dragCleanupRef.current) {
+        dragCleanupRef.current();
+        dragCleanupRef.current = null;
+      }
+    };
+  }, []);
 
   const sortedSessions = useMemo(() =>
     [...sessions].sort((a, b) => {
@@ -250,6 +276,7 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
         </>
       )}
       <div className="theme-selector">
+        <span className="theme-label">主题</span>
         <select
           value={currentTheme}
           onChange={(e) => onThemeChange(e.target.value)}
