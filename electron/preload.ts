@@ -65,6 +65,16 @@ const api = {
     ipcRenderer.on('session:clear-terminal', handler);
     return () => ipcRenderer.removeListener('session:clear-terminal', handler);
   },
+  onCopyTrimmed(callback: (id: string) => void) {
+    const handler = (_: unknown, payload: { id: string }) => callback(payload.id);
+    ipcRenderer.on('session:copy-trimmed', handler);
+    return () => ipcRenderer.removeListener('session:copy-trimmed', handler);
+  },
+  onPaste(callback: (id: string) => void) {
+    const handler = (_: unknown, payload: { id: string }) => callback(payload.id);
+    ipcRenderer.on('session:paste', handler);
+    return () => ipcRenderer.removeListener('session:paste', handler);
+  },
   onSessionCreated(callback: (payload: any) => void) {
     const handler = (_: unknown, payload: unknown) => callback(payload);
     ipcRenderer.on(IPC.SESSION_CREATED, handler);

@@ -92,6 +92,14 @@ export function Terminal({ sessionId, theme }: Props) {
     // Cmd+/Cmd- to adjust font size, Cmd+0 to reset
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!e.metaKey) return;
+      // Cmd+C: copy with trimmed whitespace
+      if (e.key === 'c' && xterm.hasSelection()) {
+        e.preventDefault();
+        const selection = xterm.getSelection();
+        const trimmed = selection.split('\n').map(line => line.trim()).join('\n').trim();
+        navigator.clipboard.writeText(trimmed);
+        return;
+      }
       let newSize: number | null = null;
       if (e.key === '=' || e.key === '+') {
         e.preventDefault();
@@ -118,9 +126,29 @@ export function Terminal({ sessionId, theme }: Props) {
       }
     });
 
+    const offCopy = window.electronAPI.onCopyTrimmed((id: string) => {
+      if (id === sessionId) {
+        const selection = xterm.getSelection();
+        if (selection) {
+          const trimmed = selection.split('\n').map(line => line.trim()).join('\n').trim();
+          navigator.clipboard.writeText(trimmed);
+        }
+      }
+    });
+
+    const offPaste = window.electronAPI.onPaste((id: string) => {
+      if (id === sessionId) {
+        navigator.clipboard.readText().then(text => {
+          if (text) window.electronAPI.sendInput(sessionId, text);
+        });
+      }
+    });
+
     return () => {
       offData();
       offClear();
+      offCopy();
+      offPaste();
       resizeObserver.disconnect();
       window.removeEventListener('keydown', handleKeyDown);
       xterm.dispose();
