@@ -59,7 +59,53 @@ function getSorted() {
   });
 }
 
+function FirstRunModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="firstrun-overlay">
+      <div className="firstrun-modal">
+        <div className="firstrun-header">Claude Manager</div>
+        <div className="firstrun-body">
+          <section className="firstrun-section">
+            <h3>快捷键</h3>
+            <table className="firstrun-shortcuts">
+              <tbody>
+                <tr><td><kbd>Cmd+N</kbd></td><td>新建会话</td></tr>
+                <tr><td><kbd>Cmd+W</kbd></td><td>关闭当前会话</td></tr>
+                <tr><td><kbd>Cmd+1-9</kbd></td><td>切换到第 N 个会话</td></tr>
+                <tr><td><kbd>Cmd+[</kbd> / <kbd>Cmd+]</kbd></td><td>切换上/下一个会话</td></tr>
+                <tr><td><kbd>Cmd+</kbd> / <kbd>Cmd-</kbd></td><td>调整终端字体大小</td></tr>
+              </tbody>
+            </table>
+          </section>
+          <section className="firstrun-section">
+            <h3>功能</h3>
+            <ul>
+              <li>右键菜单：会话卡片可重命名，终端区域可清屏</li>
+              <li>拖拽文件夹到侧边栏快速创建会话</li>
+              <li>分屏模式同时查看两个会话</li>
+              <li>14 种配色主题可选</li>
+              <li>批量命令同时发送到多个会话</li>
+            </ul>
+          </section>
+          <section className="firstrun-section firstrun-warning">
+            <h3>安全提示</h3>
+            <ul>
+              <li>所有会话均以 <code>--dangerously-skip-permissions</code> 模式启动，Claude 将跳过权限确认直接执行操作。</li>
+              <li>应用会修改 <code>~/.claude/settings.json</code> 注入 hooks，用于检测会话状态（忙碌/空闲/等待确认）。</li>
+              <li>请仅在信任的项目中使用本工具。</li>
+            </ul>
+          </section>
+        </div>
+        <div className="firstrun-footer">
+          <button className="firstrun-btn" onClick={onClose}>开始使用</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function App() {
+  const [showFirstRun, setShowFirstRun] = useState(() => !localStorage.getItem('claude-manager-security-acknowledged'));
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;
@@ -171,6 +217,12 @@ export function App() {
 
   return (
     <ErrorBoundary>
+    {showFirstRun && (
+      <FirstRunModal onClose={() => {
+        localStorage.setItem('claude-manager-security-acknowledged', '1');
+        setShowFirstRun(false);
+      }} />
+    )}
     <div className="app">
       <div className="titlebar-drag">Claude Manager</div>
       <Sidebar

@@ -90,7 +90,7 @@ export class SessionManager extends EventEmitter {
       return 'claude';
     })();
 
-    const shell = process.env.SHELL || '/bin/zsh';
+    const shell = process.env.SHELL || (process.platform === 'win32' ? 'powershell.exe' : '/bin/bash');
     let ptyProcess: pty.IPty;
     try {
       ptyProcess = pty.spawn(shell, ['-l'], {

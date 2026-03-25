@@ -3,9 +3,14 @@
   "version": "1.0.0",
   "main": "dist-electron/main.js",
   "scripts": {
+    "start": "npm run electron:dev",
     "dev": "vite",
     "build": "tsc -p tsconfig.node.json && vite build",
     "electron:dev": "tsc -p tsconfig.node.json && electron dist-electron/main.js",
+    "build:dmg": "electron-builder --mac --config electron-builder.json -c.mac.identity=null",
+    "build:all": "npm run build && npm run build:dmg",
+    "clean": "rm -rf dist dist-electron release *.tsbuildinfo",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "rebuild": "electron-rebuild -f -w node-pty"

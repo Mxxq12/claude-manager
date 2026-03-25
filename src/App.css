@@ -507,3 +507,122 @@ html, body, #root {
 .context-menu-item:hover {
   background: var(--hover);
 }
+
+/* First-run welcome modal */
+.firstrun-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+.firstrun-modal {
+  width: 520px;
+  max-height: 85vh;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.firstrun-header {
+  padding: 20px 24px 12px;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+.firstrun-body {
+  padding: 16px 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+.firstrun-section {
+  margin-bottom: 16px;
+}
+.firstrun-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+.firstrun-section ul {
+  list-style: none;
+  padding: 0;
+}
+.firstrun-section li {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 3px 0;
+  padding-left: 12px;
+  position: relative;
+}
+.firstrun-section li::before {
+  content: '\2022';
+  position: absolute;
+  left: 0;
+  color: var(--text-dim);
+}
+.firstrun-section code {
+  background: var(--bg-toolbar);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--error);
+}
+.firstrun-shortcuts {
+  width: 100%;
+  border-collapse: collapse;
+}
+.firstrun-shortcuts td {
+  padding: 4px 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+.firstrun-shortcuts td:first-child {
+  white-space: nowrap;
+  width: 1%;
+}
+.firstrun-shortcuts kbd {
+  display: inline-block;
+  background: var(--bg-toolbar);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text);
+}
+.firstrun-warning {
+  background: rgba(243, 139, 168, 0.08);
+  border: 1px solid rgba(243, 139, 168, 0.2);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.firstrun-warning h3 {
+  color: var(--error);
+}
+.firstrun-footer {
+  padding: 12px 24px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+}
+.firstrun-btn {
+  padding: 8px 24px;
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.firstrun-btn:hover {
+  background: var(--accent-hover);
+}

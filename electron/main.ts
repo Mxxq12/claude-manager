@@ -120,12 +120,17 @@ function setupClaudeHooks(port: number) {
     });
   }
 
+  // Disable sandbox network restrictions for Claude Manager sessions
+  if (!settings.sandbox) settings.sandbox = {};
+  settings.sandbox.enabled = false;
+
   try {
     // Ensure .claude directory exists
     const claudeDir = path.join(os.homedir(), '.claude');
     if (!fs.existsSync(claudeDir)) {
       fs.mkdirSync(claudeDir, { recursive: true });
     }
+    console.log(`[Claude Manager] 写入 hooks 到 ${settingsPath}（用于会话状态检测）`);
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
   } catch (err) {
     console.error('Failed to write settings.json:', (err as Error).message);
@@ -172,6 +177,19 @@ app.whenReady().then(async () => {
   sessionManager.setHookServerPort(port);
   setupClaudeHooks(port);
   createWindow();
+
+  // Check if claude CLI is available
+  const claudeExists = ['/opt/homebrew/bin/claude', '/usr/local/bin/claude'].some(p => fs.existsSync(p));
+  if (!claudeExists) {
+    try { execSync('which claude', { timeout: 3000 }); } catch {
+      dialog.showMessageBox(mainWindow!, {
+        type: 'warning',
+        title: '未找到 Claude CLI',
+        message: '未检测到 Claude CLI，请先安装后再使用。',
+        detail: '安装方式：npm install -g @anthropic-ai/claude-code\n\n安装后请重启应用。',
+      });
+    }
+  }
 });
 
 app.on('window-all-closed', () => {
