@@ -3,6 +3,7 @@ import type { SessionInfo, SessionStatus, IdleSubStatus } from '../types';
 
 const PERSISTED_SESSIONS_KEY = 'claude-manager-session-cwds';
 const CUSTOM_NAMES_KEY = 'claude-manager-custom-names';
+const SESSION_ORDER_KEY = 'claude-manager-session-order';
 
 function loadCustomNames(): Record<string, string> {
   try {
@@ -61,10 +62,25 @@ function clearPersistedSession(cwd: string) {
   localStorage.setItem(PERSISTED_SESSIONS_KEY, JSON.stringify(updated));
 }
 
+// Session order is persisted by cwd (stable across restarts)
+function loadSessionOrder(): string[] {
+  try {
+    const raw = localStorage.getItem(SESSION_ORDER_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveSessionOrder(order: string[]) {
+  localStorage.setItem(SESSION_ORDER_KEY, JSON.stringify(order));
+}
+
 interface SessionState {
   sessions: SessionInfo[];
   activeSessionId: string | null;
   previousSessions: { cwd: string; name: string }[];
+  sessionOrder: string[];
   addSession: (id: string, name: string, cwd: string) => void;
   updateStatus: (id: string, status: SessionStatus, idleSubStatus?: IdleSubStatus, timestamp?: number) => void;
   removeSession: (id: string) => void;
@@ -72,6 +88,7 @@ interface SessionState {
   setActiveSession: (id: string) => void;
   setExitCode: (id: string, exitCode: number) => void;
   getSortedSessions: () => SessionInfo[];
+  reorderSession: (fromId: string, toId: string, position?: 'before' | 'after') => void;
   clearPreviousSession: (cwd: string) => void;
   clearAllPreviousSessions: () => void;
 }
@@ -80,18 +97,25 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: [],
   activeSessionId: null,
   previousSessions: loadPersistedSessions(),
+  sessionOrder: loadSessionOrder(),
   addSession: (id, name, cwd) =>
     set((state) => {
       const now = Date.now();
       const customName = getCustomName(cwd) || name;
       const newSessions = [...state.sessions, { id, name: customName, cwd, status: 'idle' as SessionStatus, statusTimestamp: now, createdAt: now }];
       persistSessions(newSessions);
+      // New session goes to top of order (by cwd)
+      const newOrder = state.sessionOrder.includes(cwd)
+        ? state.sessionOrder
+        : [cwd, ...state.sessionOrder];
+      saveSessionOrder(newOrder);
       // Remove from previousSessions if it matches this cwd
       const newPrev = state.previousSessions.filter((s) => s.cwd !== cwd);
       return {
         sessions: newSessions,
         activeSessionId: id,
         previousSessions: newPrev,
+        sessionOrder: newOrder,
       };
     }),
   updateStatus: (id, status, idleSubStatus, timestamp) =>
@@ -108,8 +132,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
       const remaining = state.sessions.filter((s) => s.id !== id);
       persistSessions(remaining);
+      const cwdToRemove = session?.cwd;
+      const newOrder = cwdToRemove
+        ? state.sessionOrder.filter((c) => c !== cwdToRemove)
+        : state.sessionOrder;
+      saveSessionOrder(newOrder);
       return {
         sessions: remaining,
+        sessionOrder: newOrder,
         activeSessionId: state.activeSessionId === id ? (remaining[0]?.id ?? null) : state.activeSessionId,
       };
     }),
@@ -129,16 +159,46 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       ),
     })),
   getSortedSessions: () => {
-    const { sessions } = get();
+    const { sessions, sessionOrder } = get();
+    const orderMap = new Map(sessionOrder.map((cwd, i) => [cwd, i]));
     return [...sessions].sort((a, b) => {
-      const statusOrder: Record<SessionStatus, number> = {
-        idle: 0, error: 1, busy: 2, starting: 3, created: 4, closed: 5,
-      };
-      const diff = statusOrder[a.status] - statusOrder[b.status];
-      if (diff !== 0) return diff;
-      return b.statusTimestamp - a.statusTimestamp;
+      const aIdx = orderMap.get(a.cwd) ?? -1;
+      const bIdx = orderMap.get(b.cwd) ?? -1;
+      if (aIdx === -1 && bIdx === -1) return b.createdAt - a.createdAt;
+      if (aIdx === -1) return -1;
+      if (bIdx === -1) return 1;
+      return aIdx - bIdx;
     });
   },
+  reorderSession: (fromId, toId, position = 'before') =>
+    set((state) => {
+      const { sessions, sessionOrder } = state;
+      const fromSession = sessions.find((s) => s.id === fromId);
+      const toSession = sessions.find((s) => s.id === toId);
+      if (!fromSession || !toSession) return {};
+      const fromCwd = fromSession.cwd;
+      const toCwd = toSession.cwd;
+      // Build current effective order by cwd
+      const orderMap = new Map(sessionOrder.map((cwd, i) => [cwd, i]));
+      const ordered = [...sessions].sort((a, b) => {
+        const aIdx = orderMap.get(a.cwd) ?? -1;
+        const bIdx = orderMap.get(b.cwd) ?? -1;
+        if (aIdx === -1 && bIdx === -1) return b.createdAt - a.createdAt;
+        if (aIdx === -1) return -1;
+        if (bIdx === -1) return 1;
+        return aIdx - bIdx;
+      });
+      const cwds = ordered.map((s) => s.cwd);
+      const fromIndex = cwds.indexOf(fromCwd);
+      if (fromIndex === -1) return {};
+      cwds.splice(fromIndex, 1);
+      const toIndex = cwds.indexOf(toCwd);
+      if (toIndex === -1) return {};
+      const insertAt = position === 'after' ? toIndex + 1 : toIndex;
+      cwds.splice(insertAt, 0, fromCwd);
+      saveSessionOrder(cwds);
+      return { sessionOrder: cwds };
+    }),
   clearPreviousSession: (cwd) =>
     set((state) => {
       clearPersistedSession(cwd);

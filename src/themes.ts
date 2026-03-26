@@ -658,5 +658,5 @@ export function applyTheme(theme: Theme) {
 
 export function loadSavedTheme(): Theme {
   const saved = localStorage.getItem('claude-manager-theme');
-  return getTheme(saved || 'catppuccin');
+  return getTheme(saved || 'ayu-dark');
 }

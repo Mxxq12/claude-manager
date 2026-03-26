@@ -2,11 +2,6 @@ import { useMemo, useEffect, useState, useRef, useCallback } from 'react';
 import { useSessionStore } from '../stores/session-store';
 import { SessionCard } from './SessionCard';
 import { themes } from '../themes';
-import type { SessionStatus } from '../types';
-
-const statusOrder: Record<SessionStatus, number> = {
-  idle: 0, error: 1, busy: 2, starting: 3, created: 4, closed: 5,
-};
 
 interface RecentProject {
   path: string;
@@ -22,10 +17,15 @@ interface Props {
 
 export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange }: Props) {
   const sessions = useSessionStore((s) => s.sessions);
+  const sessionOrder = useSessionStore((s) => s.sessionOrder);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
+  const reorderSession = useSessionStore((s) => s.reorderSession);
   const previousSessions = useSessionStore((s) => s.previousSessions);
   const clearPreviousSession = useSessionStore((s) => s.clearPreviousSession);
+  const [dragSessionId, setDragSessionId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [dropPosition, setDropPosition] = useState<'before' | 'after'>('before');
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [previousHeight, setPreviousHeight] = useState(() => {
@@ -87,12 +87,17 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
     };
   }, []);
 
-  const sortedSessions = useMemo(() =>
-    [...sessions].sort((a, b) => {
-      const diff = statusOrder[a.status] - statusOrder[b.status];
-      if (diff !== 0) return diff;
-      return b.statusTimestamp - a.statusTimestamp;
-    }), [sessions]);
+  const sortedSessions = useMemo(() => {
+    const orderMap = new Map(sessionOrder.map((cwd, i) => [cwd, i]));
+    return [...sessions].sort((a, b) => {
+      const aIdx = orderMap.get(a.cwd) ?? -1;
+      const bIdx = orderMap.get(b.cwd) ?? -1;
+      if (aIdx === -1 && bIdx === -1) return b.createdAt - a.createdAt;
+      if (aIdx === -1) return -1;
+      if (bIdx === -1) return 1;
+      return aIdx - bIdx;
+    });
+  }, [sessions, sessionOrder]);
 
   const statusCounts = useMemo(() => {
     let idle = 0, busy = 0, error = 0;
@@ -151,20 +156,28 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
     window.electronAPI.createSession(cwd);
   };
 
+  const isExternalDrag = (e: React.DragEvent) => {
+    return e.dataTransfer.types.includes('Files') && !e.dataTransfer.types.includes('text/plain');
+  };
+
   const handleDragOver = (e: React.DragEvent) => {
+    if (!isExternalDrag(e)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'copy';
   };
   const handleDragEnter = (e: React.DragEvent) => {
+    if (!isExternalDrag(e)) return;
     e.preventDefault();
     dragCounter.current++;
     setDragOver(true);
   };
-  const handleDragLeave = () => {
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (!isExternalDrag(e)) return;
     dragCounter.current--;
     if (dragCounter.current === 0) setDragOver(false);
   };
   const handleDrop = (e: React.DragEvent) => {
+    if (!isExternalDrag(e)) return;
     e.preventDefault();
     dragCounter.current = 0;
     setDragOver(false);
@@ -203,16 +216,54 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
       </div>
       <div className="session-list">
         {sortedSessions.map((session) => (
-          <SessionCard
+          <div
             key={session.id}
-            session={session}
-            isActive={session.id === activeSessionId}
-            onClick={() => setActiveSession(session.id)}
-            onClose={() => handleClose(session.id)}
-            onRename={(name) => handleRename(session.id, name)}
-            onRestart={() => handleRestart(session.id)}
-            onClearTerminal={() => window.dispatchEvent(new CustomEvent('clear-terminal', { detail: session.id }))}
-          />
+            draggable
+            onDragStart={(e) => {
+              setDragSessionId(session.id);
+              e.dataTransfer.effectAllowed = 'move';
+              e.dataTransfer.setData('text/plain', session.id);
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              e.dataTransfer.dropEffect = 'move';
+              if (dragSessionId && dragSessionId !== session.id) {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const pos = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+                setDropTargetId(session.id);
+                setDropPosition(pos);
+              }
+            }}
+            onDragLeave={(e) => {
+              e.stopPropagation();
+              setDropTargetId((prev) => prev === session.id ? null : prev);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (dragSessionId && dragSessionId !== session.id) {
+                reorderSession(dragSessionId, session.id, dropPosition);
+              }
+              setDragSessionId(null);
+              setDropTargetId(null);
+            }}
+            onDragEnd={() => {
+              setDragSessionId(null);
+              setDropTargetId(null);
+            }}
+            className={`session-drag-wrapper ${dropTargetId === session.id ? (dropPosition === 'before' ? 'drag-insert-top' : 'drag-insert-bottom') : ''} ${dragSessionId === session.id ? 'dragging' : ''}`}
+          >
+            <SessionCard
+              session={session}
+              isActive={session.id === activeSessionId}
+              onClick={() => setActiveSession(session.id)}
+              onClose={() => handleClose(session.id)}
+              onRename={(name) => handleRename(session.id, name)}
+              onRestart={() => handleRestart(session.id)}
+              onClearTerminal={() => window.dispatchEvent(new CustomEvent('clear-terminal', { detail: session.id }))}
+            />
+          </div>
         ))}
       </div>
       {previousSessions.length > 0 && (

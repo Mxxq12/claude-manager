@@ -161,6 +161,23 @@ function createWindow() {
     },
   });
 
+  // Intercept links: open external URLs in the system default browser
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    // Allow loading the app itself
+    const appOrigins = ['http://localhost:5173', 'file://'];
+    if (!appOrigins.some((origin) => url.startsWith(origin))) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
+
   if (process.env.NODE_ENV === 'development') {
     mainWindow.loadURL('http://localhost:5173');
   } else {
@@ -192,9 +209,9 @@ app.whenReady().then(async () => {
   }
 });
 
-app.on('window-all-closed', () => {
+app.on('window-all-closed', async () => {
   hookServer.close();
-  sessionManager.dispose();
+  await sessionManager.dispose();
   app.quit();
 });
 

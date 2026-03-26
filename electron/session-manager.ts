@@ -16,6 +16,8 @@ interface Session {
   statusTimestamp: number;
   outputBuffer: Uint8Array[];
   bufferSize: number;
+  recentOutput: string;
+  rateLimitTimer?: ReturnType<typeof setTimeout>;
 }
 
 const MAX_BUFFER_BYTES = 5_000_000;
@@ -44,6 +46,77 @@ export class SessionManager extends EventEmitter {
 
   isAutoApprove(id: string): boolean {
     return this.autoApproveGlobal || this.autoApproveSessions.has(id);
+  }
+
+  private detectRateLimitAndScheduleResume(id: string, session: Session): void {
+    // Match: "You've hit your ... · resets 10pm (America/New_York)"
+    // or "You're out of extra usage · resets ..."
+    const rateLimitMatch = session.recentOutput.match(
+      /(?:You've hit your|You're out of extra usage)[^·]*·\s*resets\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm))\s*\(([^)]+)\)/i
+    );
+    if (!rateLimitMatch) return;
+
+    // Clear any existing timer for this session
+    if (session.rateLimitTimer) {
+      clearTimeout(session.rateLimitTimer);
+      session.rateLimitTimer = undefined;
+    }
+
+    const timeStr = rateLimitMatch[1]; // e.g. "10pm" or "2:30am"
+    const timezone = rateLimitMatch[2]; // e.g. "America/New_York"
+
+    try {
+      // Parse the reset time
+      const now = new Date();
+      const match = timeStr.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
+      if (!match) return;
+
+      let hours = parseInt(match[1], 10);
+      const minutes = parseInt(match[2] || '0', 10);
+      const ampm = match[3].toLowerCase();
+
+      if (ampm === 'pm' && hours !== 12) hours += 12;
+      if (ampm === 'am' && hours === 12) hours = 0;
+
+      // Build reset date in the specified timezone
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', hour12: false,
+      });
+      const parts = formatter.formatToParts(now);
+      const nowHour = parseInt(parts.find(p => p.type === 'hour')!.value, 10);
+      const nowMinute = parseInt(parts.find(p => p.type === 'minute')!.value, 10);
+
+      // Calculate delay in ms
+      let delayMinutes = (hours * 60 + minutes) - (nowHour * 60 + nowMinute);
+      if (delayMinutes <= 0) delayMinutes += 24 * 60; // next day
+
+      const delayMs = delayMinutes * 60 * 1000 + 30_000; // add 30s buffer
+
+      const resumeTime = new Date(now.getTime() + delayMs);
+      console.log(`[AutoResume] Session ${session.name}: rate limit detected, will resume at ${resumeTime.toLocaleTimeString()} (in ${Math.round(delayMs / 60000)} min)`);
+
+      this.emit('status', {
+        id,
+        status: session.status,
+        idleSubStatus: session.idleSubStatus,
+        timestamp: session.statusTimestamp,
+        rateLimitResumeAt: resumeTime.getTime(),
+      });
+
+      session.rateLimitTimer = setTimeout(() => {
+        const s = this.sessions.get(id);
+        if (s) {
+          console.log(`[AutoResume] Session ${s.name}: resuming after rate limit`);
+          s.pty.write('/resume\r');
+          session.rateLimitTimer = undefined;
+          session.recentOutput = '';
+        }
+      }, delayMs);
+    } catch (e) {
+      console.error('[AutoResume] Failed to parse rate limit time:', e);
+    }
   }
 
   setHookServerPort(port: number) {
@@ -117,9 +190,8 @@ export class SessionManager extends EventEmitter {
       statusTimestamp: Date.now(),
       outputBuffer: [],
       bufferSize: 0,
+      recentOutput: '',
     };
-
-    let recentOutput = '';
 
     ptyProcess.onData((data: string) => {
       const bytes = new TextEncoder().encode(data);
@@ -133,30 +205,34 @@ export class SessionManager extends EventEmitter {
 
       this.emit('data', { id, data: bytes });
 
+      // Track recent output for auto-approve detection
+      session.recentOutput += data;
+      if (session.recentOutput.length > 2000) {
+        session.recentOutput = session.recentOutput.slice(-2000);
+      }
+
       // Auto-approve: detect permission prompts in terminal output
       if (this.isAutoApprove(id)) {
-        recentOutput += data;
-        // Keep only last 500 chars to avoid memory buildup
-        if (recentOutput.length > 500) {
-          recentOutput = recentOutput.slice(-500);
-        }
         // Detect common approval patterns from Claude CLI
-        if (/\(Y\)es/i.test(recentOutput) || /\[Y\/n\]/i.test(recentOutput) || /Do you want to proceed/i.test(recentOutput)) {
-          recentOutput = '';
+        if (/\(Y\)es/i.test(session.recentOutput) || /\[Y\/n\]/i.test(session.recentOutput) || /Do you want to proceed/i.test(session.recentOutput)) {
+          session.recentOutput = '';
           setTimeout(() => {
             const s = this.sessions.get(id);
             if (s) s.pty.write('y');
           }, 200);
         }
         // Detect sandbox permission prompts (network/filesystem interactive menu)
-        if (/Do you want to allow/i.test(recentOutput) && /❯\s*1\.\s*Yes/i.test(recentOutput)) {
-          recentOutput = '';
+        if (/Do you want to allow/i.test(session.recentOutput) && /❯\s*1\.\s*Yes/i.test(session.recentOutput)) {
+          session.recentOutput = '';
           setTimeout(() => {
             const s = this.sessions.get(id);
             if (s) s.pty.write('\r');
           }, 200);
         }
       }
+
+      // Rate limit detection: always schedule auto-resume (regardless of auto-approve)
+      this.detectRateLimitAndScheduleResume(id, session);
     });
 
     ptyProcess.onExit(({ exitCode }) => {
@@ -198,6 +274,43 @@ export class SessionManager extends EventEmitter {
         }
       }, 300);
     }
+
+    // Auto-continue: when Claude stops to ask a question mid-task, auto-send continue
+    if (status === 'idle' && subStatus === 'input' && this.isAutoApprove(id)) {
+      const questionPatterns = [
+        /\?\s*$/m,           // ends with ?
+        /是否/,              // 是否
+        /要不要/,            // 要不要
+        /你觉得/,            // 你觉得
+        /你看/,              // 你看行不行
+        /可以吗/,            // 可以吗
+        /行吗/,              // 行吗
+        /确认/,              // 确认
+        /should I/i,         // should I
+        /shall I/i,          // shall I
+        /do you want/i,      // do you want
+        /would you like/i,   // would you like
+        /what do you think/i, // what do you think
+        /let me know/i,      // let me know
+        /sound good/i,       // does that sound good
+        /proceed/i,          // shall we proceed
+        /approve/i,          // do you approve
+        /go ahead/i,         // should I go ahead
+      ];
+
+      const output = session.recentOutput;
+      const hasQuestion = questionPatterns.some((p) => p.test(output));
+
+      if (hasQuestion) {
+        session.recentOutput = '';
+        setTimeout(() => {
+          const s = this.sessions.get(id);
+          if (s && s.status === 'idle' && s.idleSubStatus === 'input') {
+            s.pty.write('继续，按你的方案执行\r');
+          }
+        }, 500);
+      }
+    }
   }
 
   sendInput(id: string, data: string): void {
@@ -207,6 +320,7 @@ export class SessionManager extends EventEmitter {
   closeSession(id: string): void {
     const session = this.sessions.get(id);
     if (!session) return;
+    if (session.rateLimitTimer) clearTimeout(session.rateLimitTimer);
     session.pty.kill();
     this.sessions.delete(id);
   }
@@ -242,10 +356,23 @@ export class SessionManager extends EventEmitter {
     }));
   }
 
-  dispose(): void {
+  dispose(): Promise<void> {
+    const promises: Promise<void>[] = [];
     for (const session of this.sessions.values()) {
-      session.pty.kill();
+      if (session.rateLimitTimer) clearTimeout(session.rateLimitTimer);
+      promises.push(new Promise<void>((resolve) => {
+        const timeout = setTimeout(() => {
+          try { session.pty.kill('SIGKILL'); } catch {}
+          resolve();
+        }, 3000);
+        session.pty.onExit(() => {
+          clearTimeout(timeout);
+          resolve();
+        });
+        try { session.pty.kill(); } catch { clearTimeout(timeout); resolve(); }
+      }));
     }
     this.sessions.clear();
+    return Promise.all(promises).then(() => {});
   }
 }
