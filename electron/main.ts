@@ -331,6 +331,13 @@ ipcMain.on('session:context-menu', (_, payload: { id: string; source?: string })
       label: '重命名',
       click: () => { mainWindow?.webContents.send('session:rename-request', { id: payload.id }); },
     });
+    const session = sessionManager.getSession(payload.id);
+    if (session) {
+      items.push({
+        label: '打开目录',
+        click: () => { shell.openPath(session.cwd); },
+      });
+    }
   }
   Menu.buildFromTemplate(items).popup();
 });

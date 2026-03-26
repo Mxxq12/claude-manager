@@ -2,17 +2,41 @@ import { create } from 'zustand';
 import type { SessionInfo, SessionStatus, IdleSubStatus } from '../types';
 
 const PERSISTED_SESSIONS_KEY = 'claude-manager-session-cwds';
+const CUSTOM_NAMES_KEY = 'claude-manager-custom-names';
+
+function loadCustomNames(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(CUSTOM_NAMES_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveCustomName(cwd: string, name: string) {
+  const names = loadCustomNames();
+  names[cwd] = name;
+  localStorage.setItem(CUSTOM_NAMES_KEY, JSON.stringify(names));
+}
+
+function getCustomName(cwd: string): string | null {
+  return loadCustomNames()[cwd] || null;
+}
 
 function loadPersistedSessions(): { cwd: string; name: string }[] {
   try {
     const raw = localStorage.getItem(PERSISTED_SESSIONS_KEY);
     const list: { cwd: string; name: string }[] = raw ? JSON.parse(raw) : [];
+    const customNames = loadCustomNames();
     const seen = new Set<string>();
     return list.filter((s) => {
       if (seen.has(s.cwd)) return false;
       seen.add(s.cwd);
       return true;
-    });
+    }).map((s) => ({
+      ...s,
+      name: customNames[s.cwd] || s.name,
+    }));
   } catch {
     return [];
   }
@@ -59,7 +83,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   addSession: (id, name, cwd) =>
     set((state) => {
       const now = Date.now();
-      const newSessions = [...state.sessions, { id, name, cwd, status: 'idle' as SessionStatus, statusTimestamp: now, createdAt: now }];
+      const customName = getCustomName(cwd) || name;
+      const newSessions = [...state.sessions, { id, name: customName, cwd, status: 'idle' as SessionStatus, statusTimestamp: now, createdAt: now }];
       persistSessions(newSessions);
       // Remove from previousSessions if it matches this cwd
       const newPrev = state.previousSessions.filter((s) => s.cwd !== cwd);
@@ -89,9 +114,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       };
     }),
   renameSession: (id, name) =>
-    set((state) => ({
-      sessions: state.sessions.map((s) => (s.id === id ? { ...s, name } : s)),
-    })),
+    set((state) => {
+      const session = state.sessions.find((s) => s.id === id);
+      if (session) saveCustomName(session.cwd, name);
+      return {
+        sessions: state.sessions.map((s) => (s.id === id ? { ...s, name } : s)),
+      };
+    }),
   setActiveSession: (id) => set({ activeSessionId: id }),
   setExitCode: (id, exitCode) =>
     set((state) => ({

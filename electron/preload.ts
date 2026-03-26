@@ -71,6 +71,11 @@ const api = {
     ipcRenderer.on('session:switch-to', handler);
     return () => ipcRenderer.removeListener('session:switch-to', handler);
   },
+  onRenameRequest(callback: (id: string) => void) {
+    const handler = (_: unknown, payload: { id: string }) => callback(payload.id);
+    ipcRenderer.on('session:rename-request', handler);
+    return () => ipcRenderer.removeListener('session:rename-request', handler);
+  },
   onClearTerminal(callback: (id: string) => void) {
     const handler = (_: unknown, payload: { id: string }) => callback(payload.id);
     ipcRenderer.on('session:clear-terminal', handler);

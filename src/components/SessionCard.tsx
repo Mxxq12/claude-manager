@@ -73,6 +73,29 @@ export function SessionCard({ session, isActive, onClick, onClose, onRename, onR
     setTimeout(() => inputRef.current?.select(), 0);
   };
 
+  // Listen for rename request from native context menu
+  useEffect(() => {
+    const handler = (e: Event) => {
+      if ((e as CustomEvent).detail === session.id) {
+        startEditing();
+      }
+    };
+    window.addEventListener('session:start-rename', handler);
+    return () => window.removeEventListener('session:start-rename', handler);
+  }, [session.id]);
+
+  // Cancel editing when clicking outside or switching sessions
+  useEffect(() => {
+    if (!editing) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (inputRef.current && !inputRef.current.contains(e.target as Node)) {
+        finishEditing();
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [editing, editName]);
+
   const finishEditing = () => {
     setEditing(false);
     const trimmed = editName.trim();

@@ -161,7 +161,10 @@ export function App() {
     const offSwitch = window.electronAPI.onSwitchTo?.((id) => {
       setActiveSession(id);
     });
-    return () => { offCreated(); offStatus(); offClosed(); offSwitch?.(); };
+    const offRename = window.electronAPI.onRenameRequest?.((id) => {
+      window.dispatchEvent(new CustomEvent('session:start-rename', { detail: id }));
+    });
+    return () => { offCreated(); offStatus(); offClosed(); offSwitch?.(); offRename?.(); };
   }, []);
 
   useEffect(() => {
