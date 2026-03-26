@@ -250,6 +250,10 @@ ipcMain.on('session:resize', (_, payload: { id: string; cols: number; rows: numb
   sessionManager.resizePty(payload.id, payload.cols, payload.rows);
 });
 
+ipcMain.on('session:clear-buffer', (_, payload: { id: string }) => {
+  sessionManager.clearBuffer(payload.id);
+});
+
 ipcMain.handle(IPC.SESSION_REQUEST_BUFFER, (_, payload: { id: string }) => {
   const buffer = sessionManager.getBuffer(payload.id);
   return buffer;

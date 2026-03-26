@@ -171,6 +171,25 @@ html, body, #root {
 .session-card:hover { background: var(--hover); }
 .session-card.active { background: var(--active); }
 
+.session-card.newly-idle {
+  position: relative;
+}
+.session-card.newly-idle::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: newly-idle-dot 1.5s ease-in-out 3;
+}
+@keyframes newly-idle-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
 .session-card-header { display: flex; align-items: center; gap: 8px; }
 .status-indicator { font-size: 10px; }
 

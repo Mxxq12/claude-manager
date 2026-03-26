@@ -73,6 +73,7 @@ export interface ElectronAPI {
   renameSession(id: string, name: string): void;
   requestBuffer(id: string): Promise<Uint8Array[]>;
   resizePty(id: string, cols: number, rows: number): void;
+  clearBuffer(id: string): void;
   selectDirectory(): Promise<string | null>;
   getRecentProjects(): Promise<{ path: string; name: string }[]>;
   setWindowTitle(title: string): void;
@@ -85,6 +86,14 @@ export interface ElectronAPI {
   onSessionStatus(callback: (payload: SessionStatusPayload) => void): () => void;
   onSessionClosed(callback: (payload: SessionClosedPayload) => void): () => void;
   onSessionBufferData(callback: (payload: SessionDataPayload) => void): () => void;
+  openExternal(url: string): void;
+  openPath(path: string): void;
+  showSessionContextMenu(id: string, context?: string): void;
+  confirmAndCreateSession(path: string): void;
+  onSwitchTo(callback: (id: string) => void): () => void;
+  onClearTerminal(callback: (id: string) => void): () => void;
+  onCopyTrimmed(callback: (id: string) => void): () => void;
+  onPaste(callback: (id: string) => void): () => void;
 }
 
 declare global {

@@ -21,137 +21,225 @@ function getSavedFontSize(): number {
   return saved ? parseInt(saved, 10) : DEFAULT_FONT_SIZE;
 }
 
+interface CachedTerminal {
+  xterm: XTerm;
+  fitAddon: FitAddon;
+  element: HTMLDivElement;
+  cleanups: (() => void)[];
+}
+
+// Global cache of terminal instances keyed by sessionId
+const terminalCache = new Map<string, CachedTerminal>();
+
+function createTerminal(sessionId: string, theme: Theme): CachedTerminal {
+  const element = document.createElement('div');
+  element.style.width = '100%';
+  element.style.height = '100%';
+
+  const xterm = new XTerm({
+    cursorBlink: true,
+    fontSize: getSavedFontSize(),
+    fontFamily: '"MesloLGS For Powerline", "MesloLGS NF", Menlo, Monaco, monospace',
+    fontWeight: 'normal',
+    letterSpacing: 0,
+    lineHeight: 1.0,
+    scrollback: 10000,
+    allowProposedApi: true,
+    theme: theme.terminal,
+  });
+
+  const fitAddon = new FitAddon();
+  xterm.loadAddon(fitAddon);
+  xterm.loadAddon(new WebLinksAddon((_, uri) => {
+    window.electronAPI.openExternal(uri);
+  }));
+  xterm.open(element);
+
+  // Register path link provider
+  const pathRegex = /(~\/[^\s'",)}\]]+|\/(?:Users|home|tmp|var|opt|etc)[^\s'",)}\]]+)/;
+  xterm.registerLinkProvider({
+    provideLinks(lineNumber, callback) {
+      const line = xterm.buffer.active.getLine(lineNumber - 1);
+      if (!line) { callback(undefined); return; }
+      const text = line.translateToString();
+      const match = pathRegex.exec(text);
+      if (match) {
+        const before = text.substring(0, match.index).trim();
+        if (before && /[a-zA-Z0-9_-]$/.test(before)) {
+          callback(undefined);
+          return;
+        }
+        let startCol = 0;
+        for (let i = 0; i < match.index; i++) {
+          const code = text.charCodeAt(i);
+          startCol += (code > 0x7F && code < 0xFFFF) ? 2 : 1;
+        }
+        const endCol = startCol + match[0].length;
+        callback([{
+          range: { start: { x: startCol + 1, y: lineNumber }, end: { x: endCol, y: lineNumber } },
+          text: match[0],
+          activate(_event, text) {
+            window.electronAPI.openPath(text);
+          },
+        }]);
+      } else {
+        callback(undefined);
+      }
+    },
+  });
+
+  // Shift+Enter sends newline
+  xterm.attachCustomKeyEventHandler((e) => {
+    if (e.type === 'keydown' && e.key === 'Enter' && e.shiftKey) {
+      e.preventDefault();
+      window.electronAPI.sendInput(sessionId, '\n');
+      return false;
+    }
+    return true;
+  });
+
+  // Forward input to PTY
+  xterm.onData((data) => {
+    window.electronAPI.sendInput(sessionId, data);
+  });
+
+  // Sync pty size
+  xterm.onResize(({ cols, rows }) => {
+    window.electronAPI.resizePty(sessionId, cols, rows);
+  });
+
+  const cleanups: (() => void)[] = [];
+
+  // Live data listener
+  const offData = window.electronAPI.onSessionData((payload) => {
+    if (payload.id === sessionId) {
+      xterm.write(new Uint8Array(payload.data));
+      xterm.scrollToBottom();
+    }
+  });
+  cleanups.push(offData);
+
+  // Clear terminal listener
+  const offClear = window.electronAPI.onClearTerminal((id: string) => {
+    if (id === sessionId) {
+      xterm.clear();
+      window.electronAPI.clearBuffer(sessionId);
+    }
+  });
+  cleanups.push(offClear);
+
+  // Copy trimmed listener
+  const offCopy = window.electronAPI.onCopyTrimmed((id: string) => {
+    if (id === sessionId) {
+      const selection = xterm.getSelection();
+      if (selection) {
+        const trimmed = selection.split('\n').map(line => line.trim()).join('\n').trim();
+        navigator.clipboard.writeText(trimmed);
+      }
+    }
+  });
+  cleanups.push(offCopy);
+
+  // Paste listener
+  const offPaste = window.electronAPI.onPaste((id: string) => {
+    if (id === sessionId) {
+      navigator.clipboard.readText().then(text => {
+        if (text) window.electronAPI.sendInput(sessionId, text);
+      });
+    }
+  });
+  cleanups.push(offPaste);
+
+  // Replay buffer once on creation
+  window.electronAPI.requestBuffer(sessionId).then((buffer) => {
+    if (buffer && buffer.length > 0) {
+      let i = 0;
+      const BATCH_SIZE = 50;
+      const writeBatch = () => {
+        const end = Math.min(i + BATCH_SIZE, buffer.length);
+        for (; i < end; i++) {
+          xterm.write(new Uint8Array(buffer[i]));
+        }
+        if (i < buffer.length) {
+          requestAnimationFrame(writeBatch);
+        } else {
+          xterm.scrollToBottom();
+        }
+      };
+      requestAnimationFrame(writeBatch);
+    }
+    xterm.scrollToBottom();
+    setTimeout(() => xterm.scrollToBottom(), 100);
+    setTimeout(() => xterm.scrollToBottom(), 300);
+  });
+
+  const cached: CachedTerminal = { xterm, fitAddon, element, cleanups };
+  terminalCache.set(sessionId, cached);
+  return cached;
+}
+
+// Clean up a cached terminal when session is closed
+function destroyTerminal(sessionId: string) {
+  const cached = terminalCache.get(sessionId);
+  if (!cached) return;
+  cached.cleanups.forEach((fn) => fn());
+  cached.xterm.dispose();
+  cached.element.remove();
+  terminalCache.delete(sessionId);
+}
+
+// Listen for session close events to clean up cache
+if (typeof window !== 'undefined' && window.electronAPI) {
+  window.electronAPI.onSessionClosed?.((payload) => {
+    destroyTerminal(payload.id);
+  });
+}
+
 export function Terminal({ sessionId, theme }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const xtermRef = useRef<XTerm | null>(null);
-  const fitAddonRef = useRef<FitAddon | null>(null);
+  const currentSessionRef = useRef<string | null>(null);
 
-  // Separate effect: update theme without recreating terminal
+  // Update theme on all cached terminals
   useEffect(() => {
-    if (!xtermRef.current || !theme) return;
-    xtermRef.current.options.theme = theme.terminal;
+    if (!theme) return;
+    for (const cached of terminalCache.values()) {
+      cached.xterm.options.theme = theme.terminal;
+    }
   }, [theme]);
 
+  // Mount/unmount terminal elements on session switch
   useEffect(() => {
     if (!containerRef.current || !sessionId || !window.electronAPI) return;
 
     const currentTheme = theme || loadSavedTheme();
-    const xterm = new XTerm({
-      cursorBlink: true,
-      fontSize: getSavedFontSize(),
-      fontFamily: '"MesloLGS For Powerline", "MesloLGS NF", Menlo, Monaco, monospace',
-      fontWeight: 'normal',
-      letterSpacing: 0,
-      lineHeight: 1.0,
-      allowProposedApi: true,
-      theme: currentTheme.terminal,
+    let cached = terminalCache.get(sessionId);
+    if (!cached) {
+      cached = createTerminal(sessionId, currentTheme);
+    }
+
+    // Mount the terminal element into the container
+    containerRef.current.appendChild(cached.element);
+    currentSessionRef.current = sessionId;
+
+    // Fit and sync size
+    cached.fitAddon.fit();
+    window.electronAPI.resizePty(sessionId, cached.xterm.cols, cached.xterm.rows);
+    cached.xterm.scrollToBottom();
+    cached.xterm.focus();
+
+    // Resize observer
+    const resizeObserver = new ResizeObserver(() => {
+      cached!.fitAddon.fit();
+      window.electronAPI.resizePty(sessionId, cached!.xterm.cols, cached!.xterm.rows);
     });
-
-    const fitAddon = new FitAddon();
-    xterm.loadAddon(fitAddon);
-    xterm.loadAddon(new WebLinksAddon((_, uri) => {
-      window.electronAPI.openExternal(uri);
-    }));
-    xterm.open(containerRef.current);
-
-    // Register path link provider - only match standalone paths (not part of commands)
-    const pathRegex = /(~\/[^\s'",)}\]]+|\/(?:Users|home|tmp|var|opt|etc)[^\s'",)}\]]+)/;
-    xterm.registerLinkProvider({
-      provideLinks(lineNumber, callback) {
-        const line = xterm.buffer.active.getLine(lineNumber - 1);
-        if (!line) { callback(undefined); return; }
-        const text = line.translateToString();
-        const match = pathRegex.exec(text);
-        if (match) {
-          const before = text.substring(0, match.index).trim();
-          if (before && /[a-zA-Z0-9_-]$/.test(before)) {
-            callback(undefined);
-            return;
-          }
-          // Convert char index to column index (account for wide chars like CJK)
-          let startCol = 0;
-          for (let i = 0; i < match.index; i++) {
-            const code = text.charCodeAt(i);
-            startCol += (code > 0x7F && code < 0xFFFF) ? 2 : 1;
-          }
-          const endCol = startCol + match[0].length;
-          callback([{
-            range: { start: { x: startCol + 1, y: lineNumber }, end: { x: endCol, y: lineNumber } },
-            text: match[0],
-            activate(_event, text) {
-              window.electronAPI.openPath(text);
-            },
-          }]);
-        } else {
-          callback(undefined);
-        }
-      },
-    });
-
-    fitAddon.fit();
-    xtermRef.current = xterm;
-    fitAddonRef.current = fitAddon;
-
-    // Sync initial size to pty (delayed to ensure layout is ready)
-    setTimeout(() => {
-      fitAddon.fit();
-      window.electronAPI.resizePty(sessionId, xterm.cols, xterm.rows);
-    }, 100);
-
-    // Replay buffer with batching to avoid UI jank on large buffers
-    window.electronAPI.requestBuffer(sessionId).then((buffer) => {
-      if (buffer && buffer.length > 0) {
-        let i = 0;
-        const BATCH_SIZE = 50;
-        const writeBatch = () => {
-          const end = Math.min(i + BATCH_SIZE, buffer.length);
-          for (; i < end; i++) {
-            xterm.write(new Uint8Array(buffer[i]));
-          }
-          if (i < buffer.length) {
-            requestAnimationFrame(writeBatch);
-          } else {
-            xterm.scrollToBottom();
-          }
-        };
-        requestAnimationFrame(writeBatch);
-      }
-      xterm.scrollToBottom();
-      setTimeout(() => xterm.scrollToBottom(), 100);
-      setTimeout(() => xterm.scrollToBottom(), 300);
-    });
-
-    // Live data
-    const offData = window.electronAPI.onSessionData((payload) => {
-      if (payload.id === sessionId) {
-        xterm.write(new Uint8Array(payload.data));
-        xterm.scrollToBottom();
-      }
-    });
-
-    xterm.onData((data) => {
-      window.electronAPI.sendInput(sessionId, data);
-    });
-
-    // Sync pty size when terminal resizes
-    xterm.onResize(({ cols, rows }) => {
-      window.electronAPI.resizePty(sessionId, cols, rows);
-    });
-
-    const handleResize = () => {
-      fitAddon.fit();
-      window.electronAPI.resizePty(sessionId, xterm.cols, xterm.rows);
-    };
-    const resizeObserver = new ResizeObserver(handleResize);
     resizeObserver.observe(containerRef.current);
 
-    // Cmd+/Cmd- to adjust font size, Cmd+0 to reset
+    // Keyboard shortcuts (font size, copy)
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!e.metaKey) return;
-      // Cmd+C: copy with trimmed whitespace
-      if (e.key === 'c' && xterm.hasSelection()) {
+      if (e.key === 'c' && cached!.xterm.hasSelection()) {
         e.preventDefault();
-        const selection = xterm.getSelection();
+        const selection = cached!.xterm.getSelection();
         const trimmed = selection.split('\n').map(line => line.trim()).join('\n').trim();
         navigator.clipboard.writeText(trimmed);
         return;
@@ -159,57 +247,31 @@ export function Terminal({ sessionId, theme }: Props) {
       let newSize: number | null = null;
       if (e.key === '=' || e.key === '+') {
         e.preventDefault();
-        newSize = Math.min((xterm.options.fontSize || DEFAULT_FONT_SIZE) + 1, MAX_FONT_SIZE);
+        newSize = Math.min((cached!.xterm.options.fontSize || DEFAULT_FONT_SIZE) + 1, MAX_FONT_SIZE);
       } else if (e.key === '-') {
         e.preventDefault();
-        newSize = Math.max((xterm.options.fontSize || DEFAULT_FONT_SIZE) - 1, MIN_FONT_SIZE);
+        newSize = Math.max((cached!.xterm.options.fontSize || DEFAULT_FONT_SIZE) - 1, MIN_FONT_SIZE);
       } else if (e.key === '0') {
         e.preventDefault();
         newSize = DEFAULT_FONT_SIZE;
       }
       if (newSize !== null) {
-        xterm.options.fontSize = newSize;
+        cached!.xterm.options.fontSize = newSize;
         localStorage.setItem(FONT_SIZE_KEY, String(newSize));
-        fitAddon.fit();
-        window.electronAPI.resizePty(sessionId, xterm.cols, xterm.rows);
+        cached!.fitAddon.fit();
+        window.electronAPI.resizePty(sessionId, cached!.xterm.cols, cached!.xterm.rows);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
 
-    const offClear = window.electronAPI.onClearTerminal((id: string) => {
-      if (id === sessionId) {
-        xterm.clear();
-      }
-    });
-
-    const offCopy = window.electronAPI.onCopyTrimmed((id: string) => {
-      if (id === sessionId) {
-        const selection = xterm.getSelection();
-        if (selection) {
-          const trimmed = selection.split('\n').map(line => line.trim()).join('\n').trim();
-          navigator.clipboard.writeText(trimmed);
-        }
-      }
-    });
-
-    const offPaste = window.electronAPI.onPaste((id: string) => {
-      if (id === sessionId) {
-        navigator.clipboard.readText().then(text => {
-          if (text) window.electronAPI.sendInput(sessionId, text);
-        });
-      }
-    });
-
     return () => {
-      offData();
-      offClear();
-      offCopy();
-      offPaste();
       resizeObserver.disconnect();
       window.removeEventListener('keydown', handleKeyDown);
-      xterm.dispose();
-      xtermRef.current = null;
-      fitAddonRef.current = null;
+      // Detach element from container but keep it alive in cache
+      if (cached!.element.parentNode) {
+        cached!.element.parentNode.removeChild(cached!.element);
+      }
+      currentSessionRef.current = null;
     };
   }, [sessionId]);
 

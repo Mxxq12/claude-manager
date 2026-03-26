@@ -33,6 +33,9 @@ const api = {
   resizePty(id: string, cols: number, rows: number) {
     ipcRenderer.send('session:resize', { id, cols, rows });
   },
+  clearBuffer(id: string) {
+    ipcRenderer.send('session:clear-buffer', { id });
+  },
   async selectDirectory() {
     return ipcRenderer.invoke('dialog:selectDirectory');
   },

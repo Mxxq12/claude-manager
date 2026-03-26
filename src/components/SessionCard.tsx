@@ -26,6 +26,7 @@ function formatElapsed(ms: number): string {
 interface Props {
   session: SessionInfo;
   isActive: boolean;
+  isNewlyIdle?: boolean;
   onClick: () => void;
   onClose: () => void;
   onRename: (name: string) => void;
@@ -33,7 +34,7 @@ interface Props {
   onClearTerminal: () => void;
 }
 
-export function SessionCard({ session, isActive, onClick, onClose, onRename, onRestart, onClearTerminal }: Props) {
+export function SessionCard({ session, isActive, isNewlyIdle, onClick, onClose, onRename, onRestart, onClearTerminal }: Props) {
   const indicator = session.status === 'idle' && session.idleSubStatus === 'approval' ? '🟠' : STATUS_INDICATOR[session.status];
   const [elapsed, setElapsed] = useState('');
   const [autoApprove, setAutoApprove] = useState(false);
@@ -120,7 +121,7 @@ export function SessionCard({ session, isActive, onClick, onClose, onRename, onR
 
   return (
     <div
-      className={`session-card ${isActive ? 'active' : ''} status-${session.status} ${autoApprove ? 'auto-approve-active' : ''}`}
+      className={`session-card ${isActive ? 'active' : ''} status-${session.status} ${autoApprove ? 'auto-approve-active' : ''} ${isNewlyIdle ? 'newly-idle' : ''}`}
       onClick={onClick}
       onContextMenu={handleContextMenu}
       title={session.cwd}

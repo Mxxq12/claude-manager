@@ -26,6 +26,8 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
   const [dragSessionId, setDragSessionId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<'before' | 'after'>('before');
+  const [newlyIdle, setNewlyIdle] = useState<Set<string>>(new Set());
+  const prevStatusRef = useRef<Map<string, string>>(new Map());
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [previousHeight, setPreviousHeight] = useState(() => {
@@ -47,6 +49,34 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
       window.electronAPI.getAutoApproveGlobal().then(setAutoApprove);
     }
   }, []);
+
+  // Detect busy→idle transitions to mark "newly idle" sessions
+  useEffect(() => {
+    const prevMap = prevStatusRef.current;
+    const newIdle = new Set(newlyIdle);
+    for (const s of sessions) {
+      const prev = prevMap.get(s.id);
+      if ((prev === 'busy' || prev === 'starting') && s.status === 'idle') {
+        newIdle.add(s.id);
+      }
+      prevMap.set(s.id, s.status);
+    }
+    if (newIdle.size !== newlyIdle.size) {
+      setNewlyIdle(newIdle);
+    }
+  }, [sessions]);
+
+  const handleSessionClick = (id: string) => {
+    setActiveSession(id);
+    // Clear "newly idle" mark when clicked
+    if (newlyIdle.has(id)) {
+      setNewlyIdle((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
 
   const makeHandleMouseDown = useCallback((target: 'previous' | 'recent') => (e: React.MouseEvent) => {
     e.preventDefault();
@@ -257,7 +287,8 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
             <SessionCard
               session={session}
               isActive={session.id === activeSessionId}
-              onClick={() => setActiveSession(session.id)}
+              isNewlyIdle={newlyIdle.has(session.id)}
+              onClick={() => handleSessionClick(session.id)}
               onClose={() => handleClose(session.id)}
               onRename={(name) => handleRename(session.id, name)}
               onRestart={() => handleRestart(session.id)}

@@ -20,7 +20,7 @@ interface Session {
   rateLimitTimer?: ReturnType<typeof setTimeout>;
 }
 
-const MAX_BUFFER_BYTES = 5_000_000;
+const MAX_BUFFER_BYTES = 2_000_000;
 
 export class SessionManager extends EventEmitter {
   private sessions = new Map<string, Session>();
@@ -278,14 +278,25 @@ export class SessionManager extends EventEmitter {
     // Auto-continue: when Claude stops to ask a question mid-task, auto-send continue
     if (status === 'idle' && subStatus === 'input' && this.isAutoApprove(id)) {
       const questionPatterns = [
-        /\?\s*$/m,           // ends with ?
+        /[?\uFF1F]\s*$/m,    // ends with ? or ？(full-width)
+        /要我/,              // 要我...吗
         /是否/,              // 是否
         /要不要/,            // 要不要
         /你觉得/,            // 你觉得
         /你看/,              // 你看行不行
         /可以吗/,            // 可以吗
         /行吗/,              // 行吗
+        /好吗/,              // 好吗
         /确认/,              // 确认
+        /怎么样/,            // 怎么样
+        /如何/,              // 如何
+        /没问题/,            // 没问题的话我就...
+        /有没有要/,          // 有没有要调的
+        /需要调整/,          // 需要调整吗
+        /开干/,              // 我出设计文档然后开干
+        /开始吧/,            // 开始吧
+        /哪种/,              // 选哪种
+        /which/i,            // which approach
         /should I/i,         // should I
         /shall I/i,          // shall I
         /do you want/i,      // do you want
@@ -296,6 +307,9 @@ export class SessionManager extends EventEmitter {
         /proceed/i,          // shall we proceed
         /approve/i,          // do you approve
         /go ahead/i,         // should I go ahead
+        /ready to/i,         // ready to start
+        /look good/i,        // does this look good
+        /thoughts/i,         // any thoughts
       ];
 
       const output = session.recentOutput;
@@ -332,6 +346,14 @@ export class SessionManager extends EventEmitter {
 
   getBuffer(id: string): Uint8Array[] {
     return this.sessions.get(id)?.outputBuffer ?? [];
+  }
+
+  clearBuffer(id: string): void {
+    const session = this.sessions.get(id);
+    if (session) {
+      session.outputBuffer = [];
+      session.bufferSize = 0;
+    }
   }
 
   resizePty(id: string, cols: number, rows: number): void {
