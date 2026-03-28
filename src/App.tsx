@@ -3,6 +3,7 @@ import type { ReactNode, ErrorInfo } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Terminal } from './components/Terminal';
 import { StatusBar } from './components/StatusBar';
+import { BrowserPreview } from './components/BrowserPreview';
 import { useSessionStore } from './stores/session-store';
 import { themes, applyTheme, loadSavedTheme } from './themes';
 import type { Theme } from './themes';
@@ -113,12 +114,14 @@ export function App() {
   const [currentTheme, setCurrentTheme] = useState<Theme>(loadSavedTheme);
   const [splitView, setSplitView] = useState(false);
   const [rightSessionId, setRightSessionId] = useState<string | null>(null);
+  const [rightPaneMode, setRightPaneMode] = useState<'session' | 'browser'>('session');
   const rightSession = sessions.find((s) => s.id === rightSessionId) ?? null;
 
   const addSession = useSessionStore((s) => s.addSession);
   const updateStatus = useSessionStore((s) => s.updateStatus);
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
   const setExitCode = useSessionStore((s) => s.setExitCode);
+  const updateUsage = useSessionStore((s) => s.updateUsage);
 
   useEffect(() => { applyTheme(currentTheme); }, [currentTheme]);
 
@@ -164,7 +167,10 @@ export function App() {
     const offRename = window.electronAPI.onRenameRequest?.((id) => {
       window.dispatchEvent(new CustomEvent('session:start-rename', { detail: id }));
     });
-    return () => { offCreated(); offStatus(); offClosed(); offSwitch?.(); offRename?.(); };
+    const offUsage = window.electronAPI.onUsageUpdate?.((p) => {
+      updateUsage(p.id, p.usage);
+    });
+    return () => { offCreated(); offStatus(); offClosed(); offSwitch?.(); offRename?.(); offUsage?.(); };
   }, []);
 
   useEffect(() => {
@@ -245,20 +251,36 @@ export function App() {
             <div className="right-pane-selector">
               <select
                 className="right-pane-select"
-                value={rightSessionId ?? ''}
-                onChange={(e) => setRightSessionId(e.target.value || null)}
+                style={{ width: 'auto', marginRight: 4 }}
+                value={rightPaneMode}
+                onChange={(e) => setRightPaneMode(e.target.value as 'session' | 'browser')}
               >
-                <option value="">-- 选择会话 --</option>
-                {sessions
-                  .filter((s) => s.id !== activeSessionId)
-                  .map((s) => (
-                    <option key={s.id} value={s.id}>{s.name} - {s.cwd}</option>
-                  ))}
+                <option value="session">会话</option>
+                <option value="browser">浏览器</option>
               </select>
+              {rightPaneMode === 'session' && (
+                <select
+                  className="right-pane-select"
+                  value={rightSessionId ?? ''}
+                  onChange={(e) => setRightSessionId(e.target.value || null)}
+                >
+                  <option value="">-- 选择会话 --</option>
+                  {sessions
+                    .filter((s) => s.id !== activeSessionId)
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>{s.name} - {s.cwd}</option>
+                    ))}
+                </select>
+              )}
             </div>
-            <Terminal sessionId={rightSessionId} />
-
-            <StatusBar session={rightSession} />
+            {rightPaneMode === 'session' ? (
+              <>
+                <Terminal sessionId={rightSessionId} />
+                <StatusBar session={rightSession} />
+              </>
+            ) : (
+              <BrowserPreview />
+            )}
           </main>
         )}
       </div>

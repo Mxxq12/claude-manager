@@ -1,6 +1,14 @@
 export type SessionStatus = 'created' | 'starting' | 'idle' | 'busy' | 'error' | 'closed';
 export type IdleSubStatus = 'input' | 'approval';
 
+export interface UsageInfo {
+  percent?: number;
+  type?: string;
+  resetsAt?: string;
+  warning?: boolean;
+  limited?: boolean;
+}
+
 export interface SessionInfo {
   id: string;
   name: string;
@@ -10,6 +18,7 @@ export interface SessionInfo {
   statusTimestamp: number;
   createdAt: number;
   exitCode?: number;
+  usage?: UsageInfo;
 }
 
 export const IPC = {
@@ -96,6 +105,8 @@ export interface ElectronAPI {
   onClearTerminal(callback: (id: string) => void): () => void;
   onCopyTrimmed(callback: (id: string) => void): () => void;
   onPaste(callback: (id: string) => void): () => void;
+  onUsageUpdate(callback: (payload: { id: string; usage: UsageInfo }) => void): () => void;
+  onRenameRequest?(callback: (id: string) => void): () => void;
 }
 
 declare global {

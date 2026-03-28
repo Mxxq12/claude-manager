@@ -6,6 +6,14 @@ import path from 'path';
 type SessionStatus = 'created' | 'starting' | 'idle' | 'busy' | 'error' | 'closed';
 type IdleSubStatus = 'input' | 'approval';
 
+interface UsageInfo {
+  percent?: number;     // e.g. 84
+  type?: string;        // e.g. "session", "weekly", "Opus"
+  resetsAt?: string;    // e.g. "10pm (America/New_York)"
+  warning?: boolean;    // approaching limit
+  limited?: boolean;    // hit limit
+}
+
 interface Session {
   id: string;
   name: string;
@@ -18,6 +26,7 @@ interface Session {
   bufferSize: number;
   recentOutput: string;
   rateLimitTimer?: ReturnType<typeof setTimeout>;
+  usage?: UsageInfo;
 }
 
 const MAX_BUFFER_BYTES = 2_000_000;
@@ -46,6 +55,55 @@ export class SessionManager extends EventEmitter {
 
   isAutoApprove(id: string): boolean {
     return this.autoApproveGlobal || this.autoApproveSessions.has(id);
+  }
+
+  private detectUsageInfo(id: string, session: Session): void {
+    const output = session.recentOutput;
+
+    // "You've used 84% of your session limit · resets 10pm (America/New_York)"
+    const usageMatch = output.match(/You've used (\d+)% of your (\w+) limit[^·]*·\s*resets\s+([^"]+)/i);
+    if (usageMatch) {
+      session.usage = {
+        percent: parseInt(usageMatch[1], 10),
+        type: usageMatch[2],
+        resetsAt: usageMatch[3].trim(),
+        warning: true,
+        limited: false,
+      };
+      this.emit('usage', { id, usage: session.usage });
+      return;
+    }
+
+    // "You've hit your session limit · resets ..."
+    const hitMatch = output.match(/You've hit your (\w+) limit[^·]*·\s*resets\s+([^"]+)/i);
+    if (hitMatch) {
+      session.usage = {
+        percent: 100,
+        type: hitMatch[1],
+        resetsAt: hitMatch[2].trim(),
+        warning: false,
+        limited: true,
+      };
+      this.emit('usage', { id, usage: session.usage });
+      return;
+    }
+
+    // Generic "You've hit your limit · resets ..."
+    const genericHit = output.match(/You've hit your limit[^·]*·\s*resets\s+([^"]+)/i);
+    if (genericHit) {
+      session.usage = {
+        percent: 100,
+        type: 'usage',
+        resetsAt: genericHit[1].trim(),
+        warning: false,
+        limited: true,
+      };
+      this.emit('usage', { id, usage: session.usage });
+    }
+  }
+
+  getUsage(id: string): UsageInfo | undefined {
+    return this.sessions.get(id)?.usage;
   }
 
   private detectRateLimitAndScheduleResume(id: string, session: Session): void {
@@ -233,6 +291,9 @@ export class SessionManager extends EventEmitter {
 
       // Rate limit detection: always schedule auto-resume (regardless of auto-approve)
       this.detectRateLimitAndScheduleResume(id, session);
+
+      // Usage monitoring: detect usage percentage and limit messages
+      this.detectUsageInfo(id, session);
     });
 
     ptyProcess.onExit(({ exitCode }) => {

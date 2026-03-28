@@ -43,13 +43,26 @@ export function StatusBar({ session }: Props) {
     : session.status === 'starting' ? '启动中'
     : session.status;
 
+  const usageDisplay = (() => {
+    if (!session.usage) return null;
+    const { percent, type, resetsAt, limited } = session.usage;
+    if (limited) return `⛔ ${type || '用量'}已达上限 · 重置 ${resetsAt || ''}`;
+    if (percent != null) return `📊 ${type || '用量'} ${percent}% · 重置 ${resetsAt || ''}`;
+    return null;
+  })();
+
   return (
     <footer className="status-bar">
       <span className="status-bar-name">{session.name}</span>
       <span className="status-bar-cwd">{session.cwd}</span>
       <span className="status-bar-status">{statusLabel}</span>
       <span className="status-bar-elapsed">{elapsed}</span>
-      <span className="status-bar-cost">消耗: 运行 {uptime}</span>
+      {usageDisplay && (
+        <span className={`status-bar-usage ${session.usage?.limited ? 'limited' : 'warning'}`}>
+          {usageDisplay}
+        </span>
+      )}
+      <span className="status-bar-cost">运行 {uptime}</span>
     </footer>
   );
 }

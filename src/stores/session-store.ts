@@ -87,6 +87,7 @@ interface SessionState {
   renameSession: (id: string, name: string) => void;
   setActiveSession: (id: string) => void;
   setExitCode: (id: string, exitCode: number) => void;
+  updateUsage: (id: string, usage: SessionInfo['usage']) => void;
   getSortedSessions: () => SessionInfo[];
   reorderSession: (fromId: string, toId: string, position?: 'before' | 'after') => void;
   clearPreviousSession: (cwd: string) => void;
@@ -156,6 +157,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set((state) => ({
       sessions: state.sessions.map((s) =>
         s.id === id ? { ...s, exitCode } : s
+      ),
+    })),
+  updateUsage: (id, usage) =>
+    set((state) => ({
+      sessions: state.sessions.map((s) =>
+        s.id === id ? { ...s, usage } : s
       ),
     })),
   getSortedSessions: () => {

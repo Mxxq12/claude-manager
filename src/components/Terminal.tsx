@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { WebglAddon } from '@xterm/addon-webgl';
 import { loadSavedTheme } from '../themes';
 import type { Theme } from '../themes';
 import '@xterm/xterm/css/xterm.css';
@@ -54,6 +55,15 @@ function createTerminal(sessionId: string, theme: Theme): CachedTerminal {
     window.electronAPI.openExternal(uri);
   }));
   xterm.open(element);
+
+  // Enable GPU-accelerated rendering, fallback to canvas if WebGL unavailable
+  try {
+    const webglAddon = new WebglAddon();
+    webglAddon.onContextLoss(() => { webglAddon.dispose(); });
+    xterm.loadAddon(webglAddon);
+  } catch {
+    // WebGL not available, use default canvas renderer
+  }
 
   // Register path link provider
   const pathRegex = /(~\/[^\s'",)}\]]+|\/(?:Users|home|tmp|var|opt|etc)[^\s'",)}\]]+)/;

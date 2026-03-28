@@ -158,6 +158,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      webviewTag: true,
     },
   });
 
@@ -378,6 +379,25 @@ ipcMain.on('session:context-menu', (_, payload: { id: string; source?: string })
         label: '打开目录',
         click: () => { shell.openPath(session.cwd); },
       });
+      items.push({
+        label: '导出历史',
+        click: async () => {
+          const buffer = sessionManager.getBuffer(payload.id);
+          if (!buffer || buffer.length === 0) return;
+          const result = await dialog.showSaveDialog(mainWindow!, {
+            title: '导出会话历史',
+            defaultPath: path.join(session.cwd, `${session.name}-${new Date().toISOString().slice(0, 10)}.txt`),
+            filters: [{ name: '文本文件', extensions: ['txt'] }],
+          });
+          if (result.canceled || !result.filePath) return;
+          const decoder = new TextDecoder();
+          const text = buffer.map((chunk) => decoder.decode(new Uint8Array(chunk))).join('');
+          // Strip ANSI escape codes for readable output
+          const clean = text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
+          fs.writeFileSync(result.filePath, clean, 'utf-8');
+          shell.showItemInFolder(result.filePath);
+        },
+      });
     }
   }
   Menu.buildFromTemplate(items).popup();
@@ -422,4 +442,8 @@ sessionManager.on('status', (payload) => {
 
 sessionManager.on('closed', (payload) => {
   safeSend(IPC.SESSION_CLOSED, payload);
+});
+
+sessionManager.on('usage', (payload) => {
+  safeSend('session:usage', payload);
 });

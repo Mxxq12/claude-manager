@@ -100,6 +100,11 @@ const api = {
     ipcRenderer.on('session:paste', handler);
     return () => ipcRenderer.removeListener('session:paste', handler);
   },
+  onUsageUpdate(callback: (payload: { id: string; usage: any }) => void) {
+    const handler = (_: unknown, payload: any) => callback(payload);
+    ipcRenderer.on('session:usage', handler);
+    return () => ipcRenderer.removeListener('session:usage', handler);
+  },
   onSessionCreated(callback: (payload: any) => void) {
     const handler = (_: unknown, payload: unknown) => callback(payload);
     ipcRenderer.on(IPC.SESSION_CREATED, handler);
