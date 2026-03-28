@@ -88,11 +88,24 @@ function createTerminal(sessionId: string, theme: Theme): CachedTerminal {
     },
   });
 
-  // Shift+Enter sends newline
+  // Shift+Enter sends newline, Cmd+V handles clipboard images
   xterm.attachCustomKeyEventHandler((e) => {
     if (e.type === 'keydown' && e.key === 'Enter' && e.shiftKey) {
       e.preventDefault();
       window.electronAPI.sendInput(sessionId, '\n');
+      return false;
+    }
+    if (e.type === 'keydown' && e.key === 'v' && e.metaKey) {
+      e.preventDefault();
+      window.electronAPI.saveClipboardImage().then((imagePath) => {
+        if (imagePath) {
+          window.electronAPI.sendInput(sessionId, imagePath);
+        } else {
+          navigator.clipboard.readText().then((text) => {
+            if (text) window.electronAPI.sendInput(sessionId, text);
+          });
+        }
+      });
       return false;
     }
     return true;
@@ -101,6 +114,7 @@ function createTerminal(sessionId: string, theme: Theme): CachedTerminal {
   // Forward input to PTY
   xterm.onData((data) => {
     window.electronAPI.sendInput(sessionId, data);
+    window.dispatchEvent(new CustomEvent('session-user-input', { detail: sessionId }));
   });
 
   // Sync pty size

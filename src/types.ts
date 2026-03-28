@@ -74,6 +74,8 @@ export interface ElectronAPI {
   requestBuffer(id: string): Promise<Uint8Array[]>;
   resizePty(id: string, cols: number, rows: number): void;
   clearBuffer(id: string): void;
+  saveClipboardImage(): Promise<string | null>;
+  isDirectory(filePath: string): Promise<boolean>;
   selectDirectory(): Promise<string | null>;
   getRecentProjects(): Promise<{ path: string; name: string }[]>;
   setWindowTitle(title: string): void;

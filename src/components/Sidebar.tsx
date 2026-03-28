@@ -51,20 +51,44 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
   }, []);
 
   // Detect busy→idle transitions to mark "newly idle" sessions
+  // Clear mark when session is no longer idle
   useEffect(() => {
     const prevMap = prevStatusRef.current;
     const newIdle = new Set(newlyIdle);
+    let changed = false;
     for (const s of sessions) {
       const prev = prevMap.get(s.id);
       if ((prev === 'busy' || prev === 'starting') && s.status === 'idle') {
         newIdle.add(s.id);
+        changed = true;
+      }
+      // Remove mark if session is no longer idle
+      if (s.status !== 'idle' && newIdle.has(s.id)) {
+        newIdle.delete(s.id);
+        changed = true;
       }
       prevMap.set(s.id, s.status);
     }
-    if (newIdle.size !== newlyIdle.size) {
+    if (changed) {
       setNewlyIdle(newIdle);
     }
   }, [sessions]);
+
+  // Clear "newly idle" mark when user types in terminal
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const id = (e as CustomEvent).detail;
+      if (newlyIdle.has(id)) {
+        setNewlyIdle((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }
+    };
+    window.addEventListener('session-user-input', handler);
+    return () => window.removeEventListener('session-user-input', handler);
+  }, [newlyIdle]);
 
   const handleSessionClick = (id: string) => {
     setActiveSession(id);
@@ -204,9 +228,16 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
   const handleDragLeave = (e: React.DragEvent) => {
     if (!isExternalDrag(e)) return;
     dragCounter.current--;
-    if (dragCounter.current === 0) setDragOver(false);
+    if (dragCounter.current <= 0) {
+      dragCounter.current = 0;
+      setDragOver(false);
+    }
   };
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDragEnd = () => {
+    dragCounter.current = 0;
+    setDragOver(false);
+  };
+  const handleDrop = async (e: React.DragEvent) => {
     if (!isExternalDrag(e)) return;
     e.preventDefault();
     dragCounter.current = 0;
@@ -214,8 +245,12 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
     const files = e.dataTransfer.files;
     for (let i = 0; i < files.length; i++) {
       const filePath = window.electronAPI.getPathForFile(files[i]);
-      if (filePath) {
+      if (!filePath) continue;
+      const isDir = await window.electronAPI.isDirectory(filePath);
+      if (isDir) {
         window.electronAPI.confirmAndCreateSession(filePath);
+      } else if (activeSessionId) {
+        window.electronAPI.sendInput(activeSessionId, filePath);
       }
     }
   };
@@ -226,9 +261,10 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
       onDragOver={handleDragOver}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
+      onDragEnd={handleDragEnd}
       onDrop={handleDrop}
     >
-      {dragOver && <div className="drop-overlay">拖放文件夹创建新会话</div>}
+      {dragOver && <div className="drop-overlay">文件夹 → 新建会话 | 文件 → 插入路径</div>}
       <div className="sidebar-toolbar">
         <button className="toolbar-btn" onClick={handleNewSession}>+ 新建</button>
         {sessions.length >= 2 && (

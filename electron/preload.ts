@@ -36,6 +36,9 @@ const api = {
   clearBuffer(id: string) {
     ipcRenderer.send('session:clear-buffer', { id });
   },
+  async saveClipboardImage(): Promise<string | null> {
+    return ipcRenderer.invoke('clipboard:save-image');
+  },
   async selectDirectory() {
     return ipcRenderer.invoke('dialog:selectDirectory');
   },
@@ -50,6 +53,9 @@ const api = {
   },
   getPathForFile(file: File): string {
     return webUtils.getPathForFile(file);
+  },
+  async isDirectory(filePath: string): Promise<boolean> {
+    return ipcRenderer.invoke('fs:is-directory', filePath);
   },
   setAutoApproveGlobal(enabled: boolean) {
     ipcRenderer.send('auto-approve:set-global', enabled);

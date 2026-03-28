@@ -254,6 +254,26 @@ ipcMain.on('session:clear-buffer', (_, payload: { id: string }) => {
   sessionManager.clearBuffer(payload.id);
 });
 
+ipcMain.handle('fs:is-directory', (_, filePath: string) => {
+  try {
+    return fs.statSync(filePath).isDirectory();
+  } catch {
+    return false;
+  }
+});
+
+ipcMain.handle('clipboard:save-image', () => {
+  const { clipboard } = require('electron');
+  const image = clipboard.readImage();
+  if (image.isEmpty()) return null;
+  const tmpDir = path.join(os.tmpdir(), 'claude-manager');
+  if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+  const filename = `clipboard-${Date.now()}.png`;
+  const filePath = path.join(tmpDir, filename);
+  fs.writeFileSync(filePath, image.toPNG());
+  return filePath;
+});
+
 ipcMain.handle(IPC.SESSION_REQUEST_BUFFER, (_, payload: { id: string }) => {
   const buffer = sessionManager.getBuffer(payload.id);
   return buffer;
