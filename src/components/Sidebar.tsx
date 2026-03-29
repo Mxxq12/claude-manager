@@ -6,6 +6,7 @@ import { themes } from '../themes';
 interface RecentProject {
   path: string;
   name: string;
+  mtime: number;
 }
 
 interface Props {
@@ -31,6 +32,7 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
   const [managedSessions, setManagedSessions] = useState<Set<string>>(new Set());
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchVisible, setSearchVisible] = useState(false);
   const [previousHeight, setPreviousHeight] = useState(() => {
     const saved = localStorage.getItem('claude-manager-previous-height');
     return saved ? parseInt(saved, 10) : 120;
@@ -190,32 +192,56 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
     }
   }, []);
 
+  // Merge previousSessions and recentProjects into one list, deduplicated by path, sorted by mtime
+  const mergedProjects = useMemo(() => {
+    const activeCwds = new Set(sessions.map((s) => s.cwd));
+    const map = new Map<string, RecentProject>();
+    // Previous sessions get current timestamp (most recent)
+    for (const s of previousSessions) {
+      if (!activeCwds.has(s.cwd)) {
+        map.set(s.cwd, { path: s.cwd, name: s.name, mtime: Date.now() });
+      }
+    }
+    // Recent projects fill in the rest
+    for (const p of recentProjects) {
+      if (!activeCwds.has(p.path) && !map.has(p.path)) {
+        map.set(p.path, p);
+      }
+    }
+    return [...map.values()].sort((a, b) => b.mtime - a.mtime);
+  }, [recentProjects, previousSessions, sessions]);
+
   const filteredProjects = useMemo(() => {
-    if (!searchQuery.trim()) return recentProjects;
+    if (!searchQuery.trim()) return mergedProjects;
     const q = searchQuery.toLowerCase();
-    return recentProjects.filter(
+    return mergedProjects.filter(
       (p) => p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q)
     );
-  }, [recentProjects, searchQuery]);
+  }, [mergedProjects, searchQuery]);
 
   const handleNewSession = async () => {
     const cwd = await window.electronAPI.selectDirectory();
     if (cwd) window.electronAPI.createSession(cwd);
   };
 
+  const [resumeDialog, setResumeDialog] = useState<{ path: string; name: string } | null>(null);
+
   const handleOpenRecent = (projectPath: string) => {
-    window.electronAPI.createSession(projectPath);
+    setResumeDialog({ path: projectPath, name: projectPath.split('/').pop() || projectPath });
+  };
+
+  const handleResumeChoice = (resume: boolean) => {
+    if (!resumeDialog) return;
+    window.electronAPI.createSession(resumeDialog.path, resume);
+    clearPreviousSession(resumeDialog.path);
+    setResumeDialog(null);
   };
 
   const handleRemoveRecent = async (e: React.MouseEvent, projectPath: string) => {
     e.stopPropagation();
     await window.electronAPI.removeRecentProject(projectPath);
     setRecentProjects((prev) => prev.filter((p) => p.path !== projectPath));
-  };
-
-  const handleOpenPrevious = (cwd: string) => {
-    window.electronAPI.createSession(cwd);
-    clearPreviousSession(cwd);
+    clearPreviousSession(projectPath);
   };
 
   const handleClose = (id: string) => {
@@ -234,7 +260,7 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
     const cwd = session.cwd;
     window.electronAPI.closeSession(id);
     useSessionStore.getState().removeSession(id);
-    window.electronAPI.createSession(cwd);
+    window.electronAPI.createSession(cwd, true);
   };
 
   const isExternalDrag = (e: React.DragEvent) => {
@@ -362,47 +388,33 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
           </div>
         ))}
       </div>
-      {previousSessions.length > 0 && (
-        <>
-          <div
-            className={`sidebar-resize-handle ${draggingHandle === 'previous' ? 'dragging' : ''}`}
-            onMouseDown={makeHandleMouseDown('previous')}
-          />
-          <div className="recent-projects previous-sessions-section" style={{ height: previousHeight, overflow: 'auto', flexShrink: 0 }}>
-            <div className="recent-projects-title">上次的会话</div>
-            <div className="recent-projects-list">
-              {previousSessions.map((s) => (
-                <div
-                  key={s.cwd}
-                  className="recent-project-item"
-                  onClick={() => handleOpenPrevious(s.cwd)}
-                  title={s.cwd}
-                >
-                  <span className="recent-project-name">{s.name}</span>
-                  <span className="recent-project-path">{s.cwd}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-      {recentProjects.length > 0 && (
+      {mergedProjects.length > 0 && (
         <>
           <div
             className={`sidebar-resize-handle ${draggingHandle === 'recent' ? 'dragging' : ''}`}
             onMouseDown={makeHandleMouseDown('recent')}
           />
           <div className="recent-projects" style={{ height: recentHeight, overflow: 'auto', flexShrink: 0 }}>
-            <div className="recent-projects-title">历史项目</div>
-            <div className="recent-search-wrapper">
-              <input
-                className="recent-search-input"
-                type="text"
-                placeholder="搜索项目..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
+            <div className="recent-projects-title">
+              历史项目
+              <button
+                className="recent-search-toggle"
+                onClick={() => { setSearchVisible((v) => !v); if (searchQuery) setSearchQuery(''); }}
+                title="搜索项目"
+              >🔍</button>
             </div>
+            {searchVisible && (
+              <div className="recent-search-wrapper">
+                <input
+                  className="recent-search-input"
+                  type="text"
+                  placeholder="搜索项目..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  autoFocus
+                />
+              </div>
+            )}
             <div className="recent-projects-list">
               {filteredProjects.map((project) => (
                 <div
@@ -438,6 +450,18 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
           ))}
         </select>
       </div>
+      {resumeDialog && (
+        <div className="resume-dialog-overlay" onClick={() => setResumeDialog(null)}>
+          <div className="resume-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="resume-dialog-title">{resumeDialog.name}</div>
+            <div className="resume-dialog-path">{resumeDialog.path}</div>
+            <div className="resume-dialog-buttons">
+              <button className="resume-dialog-btn resume" onClick={() => handleResumeChoice(true)}>恢复会话</button>
+              <button className="resume-dialog-btn new" onClick={() => handleResumeChoice(false)}>新会话</button>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

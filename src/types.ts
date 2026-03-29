@@ -76,7 +76,7 @@ export interface SessionRequestBufferPayload {
 }
 
 export interface ElectronAPI {
-  createSession(cwd: string): void;
+  createSession(cwd: string, resume?: boolean): void;
   sendInput(id: string, data: string): void;
   closeSession(id: string): void;
   renameSession(id: string, name: string): void;
@@ -86,7 +86,7 @@ export interface ElectronAPI {
   saveClipboardImage(): Promise<string | null>;
   isDirectory(filePath: string): Promise<boolean>;
   selectDirectory(): Promise<string | null>;
-  getRecentProjects(): Promise<{ path: string; name: string }[]>;
+  getRecentProjects(): Promise<{ path: string; name: string; mtime: number }[]>;
   removeRecentProject(projectPath: string): Promise<void>;
   setWindowTitle(title: string): void;
   getPathForFile(file: File): string;

@@ -140,9 +140,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         ? state.sessionOrder.filter((c) => c !== cwdToRemove)
         : state.sessionOrder;
       saveSessionOrder(newOrder);
+      // Add closed session to previousSessions so user can reopen it
+      const newPrev = session && !session.cwd.endsWith('/.managed')
+        ? [...state.previousSessions.filter((s) => s.cwd !== session.cwd), { cwd: session.cwd, name: session.name }]
+        : state.previousSessions;
       return {
         sessions: remaining,
         sessionOrder: newOrder,
+        previousSessions: newPrev,
         activeSessionId: state.activeSessionId === id ? (remaining[0]?.id ?? null) : state.activeSessionId,
       };
     }),

@@ -388,7 +388,7 @@ export class SessionManager extends EventEmitter {
     return null;
   }
 
-  createSession(cwd: string, hidden = false, model = 'opus'): string {
+  createSession(cwd: string, hidden = false, model = 'opus', resume = false): string {
     const id = randomUUID();
     const name = path.basename(cwd);
 
@@ -421,10 +421,11 @@ export class SessionManager extends EventEmitter {
       return 'claude';
     })();
 
-    // Spawn claude directly as the PTY process to avoid shell history contamination
+    // Spawn shell, then send claude command — exit claude returns to shell
+    const shell = process.env.SHELL || '/bin/bash';
     let ptyProcess: pty.IPty;
     try {
-      ptyProcess = pty.spawn(claudePath, ['--dangerously-skip-permissions', '--permission-mode', 'bypassPermissions', '--model', model], {
+      ptyProcess = pty.spawn(shell, [], {
         name: 'xterm-256color',
         cwd,
         cols: 120,
@@ -435,6 +436,9 @@ export class SessionManager extends EventEmitter {
       this.emit('error', { id, message: `PTY 启动失败: ${(err as Error).message}` });
       throw err;
     }
+    // Clear shell startup noise, then launch claude
+    const resumeFlag = resume ? ' --continue' : '';
+    ptyProcess.write(`clear && ${claudePath} --dangerously-skip-permissions --permission-mode bypassPermissions --model ${model}${resumeFlag}\r`);
 
     const session: Session = {
       id,

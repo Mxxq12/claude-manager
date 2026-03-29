@@ -137,6 +137,24 @@ function setupClaudeHooks(port: number) {
   }
 }
 
+// --- Window bounds persistence ---
+const windowBoundsFile = path.join(os.homedir(), '.claude', 'claude-manager-window-bounds.json');
+
+function loadWindowBounds(): { x?: number; y?: number; width: number; height: number; maximized?: boolean } {
+  try {
+    return JSON.parse(fs.readFileSync(windowBoundsFile, 'utf8'));
+  } catch {
+    return { width: 1200, height: 800 };
+  }
+}
+
+function saveWindowBounds() {
+  if (!mainWindow) return;
+  const maximized = mainWindow.isMaximized();
+  const bounds = mainWindow.getBounds();
+  fs.writeFileSync(windowBoundsFile, JSON.stringify({ ...bounds, maximized }, null, 2));
+}
+
 // --- Window ---
 function createWindow() {
   const iconPath = path.join(__dirname, '../assets/icon.png');
@@ -146,9 +164,10 @@ function createWindow() {
     app.dock?.setIcon(icon);
   }
 
+  const savedBounds = loadWindowBounds();
+
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    ...savedBounds,
     title: 'Claude Manager',
     icon: iconPath,
     backgroundColor: '#181825',
@@ -161,6 +180,15 @@ function createWindow() {
       webviewTag: true,
     },
   });
+
+  if (savedBounds.maximized) {
+    mainWindow.maximize();
+  }
+
+  mainWindow.on('resize', saveWindowBounds);
+  mainWindow.on('move', saveWindowBounds);
+  mainWindow.on('maximize', saveWindowBounds);
+  mainWindow.on('unmaximize', saveWindowBounds);
 
   // Intercept links: open external URLs in the system default browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -217,22 +245,21 @@ app.on('window-all-closed', async () => {
 });
 
 // IPC: Renderer -> Main
-ipcMain.on(IPC.SESSION_CREATE, (_, payload: { cwd: string }) => {
+ipcMain.on(IPC.SESSION_CREATE, (_, payload: { cwd: string; resume?: boolean }) => {
   let cwd = payload.cwd;
+  const resume = payload.resume ?? false;
   try {
     if (!fs.statSync(cwd).isDirectory()) {
       cwd = path.dirname(cwd);
     }
   } catch {}
-  console.log(`[SESSION_CREATE] cwd=${cwd}, existing sessions:`, sessionManager.getAllSessions().map(s => s.cwd));
+  console.log(`[SESSION_CREATE] cwd=${cwd}, resume=${resume}`);
   const existingId = sessionManager.getSessionIdForCwd(cwd);
   if (existingId) {
-    console.log(`[SESSION_CREATE] Already exists: ${existingId}, switching`);
     safeSend('session:switch-to', { id: existingId });
     return;
   }
-  console.log(`[SESSION_CREATE] Creating new session for ${cwd}`);
-  sessionManager.createSession(cwd);
+  sessionManager.createSession(cwd, false, 'opus', resume);
 });
 
 ipcMain.on(IPC.SESSION_INPUT, (_, payload: { id: string; data: string }) => {
@@ -406,7 +433,7 @@ ipcMain.handle('get-recent-projects', async () => {
       })
       .filter(Boolean)
       .sort((a: any, b: any) => b.mtime - a.mtime)
-      .map(({ path: p, name }: any) => ({ path: p, name }));
+      .map(({ path: p, name, mtime }: any) => ({ path: p, name, mtime }));
     return projects;
   } catch {
     return [];

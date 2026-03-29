@@ -15,8 +15,8 @@ const IPC = {
 } as const;
 
 const api = {
-  createSession(cwd: string) {
-    ipcRenderer.send(IPC.SESSION_CREATE, { cwd });
+  createSession(cwd: string, resume = false) {
+    ipcRenderer.send(IPC.SESSION_CREATE, { cwd, resume });
   },
   sendInput(id: string, data: string) {
     ipcRenderer.send(IPC.SESSION_INPUT, { id, data });
@@ -42,7 +42,7 @@ const api = {
   async selectDirectory() {
     return ipcRenderer.invoke('dialog:selectDirectory');
   },
-  async getRecentProjects(): Promise<{ path: string; name: string }[]> {
+  async getRecentProjects(): Promise<{ path: string; name: string; mtime: number }[]> {
     return ipcRenderer.invoke('get-recent-projects');
   },
   async removeRecentProject(projectPath: string): Promise<void> {

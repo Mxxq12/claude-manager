@@ -439,7 +439,20 @@ html, body, #root {
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
+.recent-search-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 2px;
+  line-height: 1;
+  opacity: 0.6;
+}
+.recent-search-toggle:hover { opacity: 1; }
 
 .recent-projects-list { padding: 0 8px; }
 
@@ -509,6 +522,86 @@ html, body, #root {
 }
 .new-session-card:hover {
   border-color: var(--accent); color: var(--accent); background: var(--hover);
+}
+
+/* Resume dialog */
+.resume-dialog-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.15s ease-out;
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.resume-dialog {
+  background: #2a2a3d;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 16px;
+  padding: 24px 28px;
+  min-width: 300px;
+  max-width: 380px;
+  box-shadow: 0 16px 64px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 255, 255, 0.08) inset;
+  animation: slideUp 0.2s ease-out;
+}
+.resume-dialog-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #e0e0e0;
+  margin-bottom: 6px;
+  letter-spacing: -0.3px;
+}
+.resume-dialog-path {
+  font-size: 11px;
+  color: #888;
+  margin-bottom: 20px;
+  word-break: break-all;
+  line-height: 1.4;
+}
+.resume-dialog-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.resume-dialog-btn {
+  padding: 10px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  letter-spacing: 0.2px;
+}
+.resume-dialog-btn.resume {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+.resume-dialog-btn.resume:hover {
+  filter: brightness(1.15);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  transform: translateY(-1px);
+}
+.resume-dialog-btn.new {
+  background: rgba(255, 255, 255, 0.06);
+  color: #ccc;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.resume-dialog-btn.new:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 .theme-selector {
