@@ -45,6 +45,9 @@ const api = {
   async getRecentProjects(): Promise<{ path: string; name: string }[]> {
     return ipcRenderer.invoke('get-recent-projects');
   },
+  async removeRecentProject(projectPath: string): Promise<void> {
+    return ipcRenderer.invoke('remove-recent-project', projectPath);
+  },
   async confirmAndCreateSession(filePath: string): Promise<boolean> {
     return ipcRenderer.invoke('session:confirm-create', { filePath });
   },

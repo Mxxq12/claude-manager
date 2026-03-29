@@ -123,7 +123,7 @@ export function SessionCard({ session, isActive, isNewlyIdle, isManaged, onToggl
 
   return (
     <div
-      className={`session-card ${isActive ? 'active' : ''} status-${session.status} ${autoApprove ? 'auto-approve-active' : ''} ${isNewlyIdle ? 'newly-idle' : ''}`}
+      className={`session-card ${isActive ? 'active' : ''} status-${session.status} ${autoApprove ? 'auto-approve-active' : ''} ${isManaged ? 'managed-active' : ''} ${isNewlyIdle ? 'newly-idle' : ''}`}
       onClick={onClick}
       onContextMenu={handleContextMenu}
       title={session.cwd}
@@ -153,28 +153,30 @@ export function SessionCard({ session, isActive, isNewlyIdle, isManaged, onToggl
       </div>
       <div className="session-card-meta">
         <span className="session-status">{statusWithTime}</span>
-        <button
-          className={`auto-approve-toggle ${autoApprove ? 'on' : ''}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            const next = !autoApprove;
-            setAutoApprove(next);
-            window.electronAPI.setAutoApproveSession(session.id, next);
-          }}
-          title={autoApprove ? '关闭自动审批' : '开启自动审批'}
-        >
-          {autoApprove ? '自动中' : '自动'}
-        </button>
-        <button
-          className={`auto-approve-toggle ${isManaged ? 'on managed' : ''}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleManaged?.();
-          }}
-          title={isManaged ? '关闭托管模式' : '开启托管模式（Sonnet 控制）'}
-        >
-          {isManaged ? '托管中' : '托管'}
-        </button>
+        <div className="session-card-actions">
+          <button
+            className={`auto-approve-toggle ${autoApprove ? 'on' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              const next = !autoApprove;
+              setAutoApprove(next);
+              window.electronAPI.setAutoApproveSession(session.id, next);
+            }}
+            title={autoApprove ? '关闭自动审批' : '开启自动审批'}
+          >
+            {autoApprove ? '自动中' : '自动'}
+          </button>
+          <button
+            className={`auto-approve-toggle ${isManaged ? 'on managed' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleManaged?.();
+            }}
+            title={isManaged ? '关闭托管模式' : '开启托管模式（Sonnet 控制）'}
+          >
+            {isManaged ? '托管中' : '托管'}
+          </button>
+        </div>
       </div>
     </div>
   );

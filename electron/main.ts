@@ -373,13 +373,25 @@ ipcMain.handle('dialog:selectDirectory', async () => {
   return result.canceled ? null : result.filePaths[0];
 });
 
+const hiddenProjectsFile = path.join(os.homedir(), '.claude', 'claude-manager-hidden-projects.json');
+
+function getHiddenProjects(): string[] {
+  try {
+    return JSON.parse(fs.readFileSync(hiddenProjectsFile, 'utf8'));
+  } catch {
+    return [];
+  }
+}
+
 ipcMain.handle('get-recent-projects', async () => {
   const projectsDir = path.join(os.homedir(), '.claude', 'projects');
   try {
+    const hidden = new Set(getHiddenProjects());
     const entries = fs.readdirSync(projectsDir);
     const projects = entries
       .map((entry) => {
         const projectPath = '/' + entry.replace(/^-/, '').replace(/-/g, '/');
+        if (hidden.has(projectPath)) return null;
         const name = path.basename(projectPath);
         try {
           // Validate path exists and is a directory on disk
@@ -398,6 +410,14 @@ ipcMain.handle('get-recent-projects', async () => {
     return projects;
   } catch {
     return [];
+  }
+});
+
+ipcMain.handle('remove-recent-project', async (_, projectPath: string) => {
+  const hidden = getHiddenProjects();
+  if (!hidden.includes(projectPath)) {
+    hidden.push(projectPath);
+    fs.writeFileSync(hiddenProjectsFile, JSON.stringify(hidden, null, 2));
   }
 });
 

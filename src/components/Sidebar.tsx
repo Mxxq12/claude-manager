@@ -207,6 +207,12 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
     window.electronAPI.createSession(projectPath);
   };
 
+  const handleRemoveRecent = async (e: React.MouseEvent, projectPath: string) => {
+    e.stopPropagation();
+    await window.electronAPI.removeRecentProject(projectPath);
+    setRecentProjects((prev) => prev.filter((p) => p.path !== projectPath));
+  };
+
   const handleOpenPrevious = (cwd: string) => {
     window.electronAPI.createSession(cwd);
     clearPreviousSession(cwd);
@@ -287,7 +293,7 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
     >
       {dragOver && <div className="drop-overlay">文件夹 → 新建会话 | 文件 → 插入路径</div>}
       <div className="sidebar-toolbar">
-        <button className="toolbar-btn" onClick={handleNewSession}>+ 新建</button>
+        <button className="toolbar-btn" onClick={handleNewSession}>+ 新建 / 打开</button>
         {sessions.length >= 2 && (
           <>
             <span className="toolbar-divider" />
@@ -407,6 +413,11 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
                 >
                   <span className="recent-project-name">{project.name}</span>
                   <span className="recent-project-path">{project.path}</span>
+                  <button
+                    className="recent-project-remove"
+                    onClick={(e) => handleRemoveRecent(e, project.path)}
+                    title="隐藏此项目"
+                  >×</button>
                 </div>
               ))}
               {filteredProjects.length === 0 && searchQuery && (

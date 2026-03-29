@@ -106,7 +106,7 @@ html, body, #root {
   color: var(--text-muted);
   border: none;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 500;
   transition: background 0.15s, color 0.15s;
 }
@@ -246,6 +246,19 @@ html, body, #root {
   justify-content: space-between;
   align-items: center;
   margin-top: 4px;
+}
+.session-status {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  font-size: 10px;
+}
+.session-card-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
   font-size: 11px;
   color: var(--text-dim);
 }
@@ -270,6 +283,9 @@ html, body, #root {
 
 .session-card.auto-approve-active {
   border-left: 3px solid var(--success);
+}
+.session-card.managed-active {
+  border-right: 3px solid var(--accent);
 }
 
 /* Main panels (split view) */
@@ -432,8 +448,26 @@ html, body, #root {
   border-radius: 6px;
   cursor: pointer;
   transition: background 0.15s;
+  position: relative;
 }
 .recent-project-item:hover { background: var(--hover); }
+.recent-project-remove {
+  display: none;
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: 1;
+  border-radius: 3px;
+}
+.recent-project-remove:hover { color: var(--text); background: var(--hover); }
+.recent-project-item:hover .recent-project-remove { display: block; }
 
 .recent-project-name { display: block; font-size: 12px; font-weight: 500; color: var(--text); }
 .recent-project-path {
@@ -466,6 +500,17 @@ html, body, #root {
 .previous-sessions-section { border-bottom: 1px solid var(--border); }
 
 /* Theme selector */
+.new-session-card {
+  border: 2px dashed var(--border); border-radius: 8px;
+  margin-bottom: 4px; padding: 10px 12px;
+  display: flex; justify-content: center; align-items: center;
+  cursor: pointer; color: var(--text-dim); font-size: 20px;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.new-session-card:hover {
+  border-color: var(--accent); color: var(--accent); background: var(--hover);
+}
+
 .theme-selector {
   padding: 8px 10px;
   border-top: 1px solid var(--border);

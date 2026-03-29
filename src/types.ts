@@ -87,6 +87,7 @@ export interface ElectronAPI {
   isDirectory(filePath: string): Promise<boolean>;
   selectDirectory(): Promise<string | null>;
   getRecentProjects(): Promise<{ path: string; name: string }[]>;
+  removeRecentProject(projectPath: string): Promise<void>;
   setWindowTitle(title: string): void;
   getPathForFile(file: File): string;
   setAutoApproveGlobal(enabled: boolean): void;
