@@ -28,6 +28,7 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
   const [dropPosition, setDropPosition] = useState<'before' | 'after'>('before');
   const [newlyIdle, setNewlyIdle] = useState<Set<string>>(new Set());
   const prevStatusRef = useRef<Map<string, string>>(new Map());
+  const [managedSessions, setManagedSessions] = useState<Set<string>>(new Set());
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [previousHeight, setPreviousHeight] = useState(() => {
@@ -43,6 +44,26 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
   const dragCounter = useRef(0);
   const dragCleanupRef = useRef<(() => void) | null>(null);
   const [autoApprove, setAutoApprove] = useState(false);
+
+  const handleToggleManaged = async (sessionId: string) => {
+    if (managedSessions.has(sessionId)) {
+      window.electronAPI.stopManaged(sessionId);
+      setManagedSessions((prev) => { const next = new Set(prev); next.delete(sessionId); return next; });
+    } else {
+      const result = await window.electronAPI.startManaged(sessionId);
+      if (result) {
+        setManagedSessions((prev) => new Set(prev).add(sessionId));
+      }
+    }
+  };
+
+  // Listen for managed stopped events (e.g. when session is closed)
+  useEffect(() => {
+    const offStopped = window.electronAPI.onManagedStopped?.((payload) => {
+      setManagedSessions((prev) => { const next = new Set(prev); next.delete(payload.executorId); return next; });
+    });
+    return () => { offStopped?.(); };
+  }, []);
 
   useEffect(() => {
     if (window.electronAPI?.getAutoApproveGlobal) {
@@ -324,6 +345,8 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
               session={session}
               isActive={session.id === activeSessionId}
               isNewlyIdle={newlyIdle.has(session.id)}
+              isManaged={managedSessions.has(session.id)}
+              onToggleManaged={() => handleToggleManaged(session.id)}
               onClick={() => handleSessionClick(session.id)}
               onClose={() => handleClose(session.id)}
               onRename={(name) => handleRename(session.id, name)}

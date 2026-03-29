@@ -31,11 +31,20 @@ interface Session {
 
 const MAX_BUFFER_BYTES = 2_000_000;
 
+interface ManagedPair {
+  controllerId: string;  // controller - Sonnet
+  executorId: string;    // executor - Opus (original session)
+  active: boolean;
+  autoMode: boolean;     // true after [START_EXECUTION] detected
+  lastTransferOutput: string;
+}
+
 export class SessionManager extends EventEmitter {
   private sessions = new Map<string, Session>();
   private hookServerPort: number = 0;
   private autoApproveGlobal: boolean = false;
   private autoApproveSessions = new Set<string>();
+  private managedPairs = new Map<string, ManagedPair>();  // pairId -> pair
 
   setAutoApproveGlobal(enabled: boolean) {
     this.autoApproveGlobal = enabled;
@@ -55,6 +64,197 @@ export class SessionManager extends EventEmitter {
 
   isAutoApprove(id: string): boolean {
     return this.autoApproveGlobal || this.autoApproveSessions.has(id);
+  }
+
+  // --- Managed Mode (托管模式) ---
+
+  startManagedForSession(executorId: string): { controllerId: string } | null {
+    const executor = this.sessions.get(executorId);
+    if (!executor) return null;
+
+    // Create .managed folder if not exists
+    const fs = require('fs');
+    const managedDir = require('path').join(executor.cwd, '.managed');
+    if (!fs.existsSync(managedDir)) fs.mkdirSync(managedDir, { recursive: true });
+
+    // Create controller session in .managed dir (hidden, opus model)
+    const controllerId = this.createSession(managedDir, true, 'opus');
+    const controller = this.sessions.get(controllerId);
+    if (controller) controller.name = `[控制] ${executor.name}`;
+
+    // Enable auto-approve on both
+    this.autoApproveSessions.add(controllerId);
+    this.autoApproveSessions.add(executorId);
+
+    const pairId = `managed-${executorId}`;
+    this.managedPairs.set(pairId, {
+      controllerId,
+      executorId,
+      active: true,
+      autoMode: false,
+      lastTransferOutput: '',
+    });
+
+    // Send skill to controller after it's ready
+    setTimeout(() => {
+      const c = this.sessions.get(controllerId);
+      if (c) {
+        try {
+          const skillPath = path.join(__dirname, '../assets/managed-controller-skill.md');
+          const fs = require('fs');
+          if (fs.existsSync(skillPath)) {
+            const skill = fs.readFileSync(skillPath, 'utf-8');
+            c.pty.write(`请严格按照以下角色规则工作：\n\n${skill}\n\n请确认你已理解控制者角色，等待用户提出需求。\r`);
+          }
+        } catch (e) {
+          console.error('[托管模式] Failed to load skill:', e);
+        }
+      }
+    }, 5000);
+
+    this.emit('managed-created', { pairId, controllerId, executorId });
+    return { controllerId };
+  }
+
+  pauseManagedForSession(executorId: string): void {
+    const pairId = `managed-${executorId}`;
+    const pair = this.managedPairs.get(pairId);
+    if (pair && pair.autoMode) {
+      pair.autoMode = false;
+      // Switch back to Opus for user interaction
+      const c = this.sessions.get(pair.controllerId);
+      if (c) c.pty.write('/model opus\r');
+      console.log(`[托管模式] Pair ${pairId}: 暂停，控制者切回 Opus`);
+      this.emit('managed-paused', { pairId });
+    }
+  }
+
+  resumeManagedForSession(executorId: string): void {
+    const pairId = `managed-${executorId}`;
+    const pair = this.managedPairs.get(pairId);
+    if (pair && pair.active && !pair.autoMode) {
+      pair.autoMode = true;
+      // Switch to Sonnet for auto execution
+      const c = this.sessions.get(pair.controllerId);
+      if (c) c.pty.write('/model sonnet\r');
+      console.log(`[托管模式] Pair ${pairId}: 恢复，控制者切回 Sonnet`);
+      this.emit('managed-resumed', { pairId });
+    }
+  }
+
+  isManagedAutoMode(executorId: string): boolean {
+    const pairId = `managed-${executorId}`;
+    return this.managedPairs.get(pairId)?.autoMode ?? false;
+  }
+
+  stopManagedForSession(executorId: string): void {
+    const pairId = `managed-${executorId}`;
+    const pair = this.managedPairs.get(pairId);
+    if (!pair) return;
+    pair.active = false;
+    // Close the controller session
+    this.closeSession(pair.controllerId);
+    this.managedPairs.delete(pairId);
+    this.emit('managed-stopped', { pairId, executorId });
+  }
+
+  getManagedPairForSession(sessionId: string): { pairId: string; pair: ManagedPair } | null {
+    for (const [pairId, pair] of this.managedPairs) {
+      if (pair.controllerId === sessionId || pair.executorId === sessionId) {
+        return { pairId, pair };
+      }
+    }
+    return null;
+  }
+
+  getManagedControllerIdForSession(executorId: string): string | null {
+    const pairId = `managed-${executorId}`;
+    return this.managedPairs.get(pairId)?.controllerId ?? null;
+  }
+
+  private handleManagedTransfer(id: string, status: 'idle' | 'busy', subStatus?: IdleSubStatus): void {
+    if (status !== 'idle' || subStatus !== 'input') return;
+
+    const managed = this.getManagedPairForSession(id);
+    if (!managed || !managed.pair.active) return;
+
+    const { pair, pairId } = managed;
+    const session = this.sessions.get(id);
+    if (!session) return;
+
+    // Extract recent output (clean ANSI codes)
+    const rawOutput = session.recentOutput;
+    const cleanOutput = rawOutput
+      .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+      .replace(/\x1b\][^\x07]*\x07/g, '')
+      .trim();
+
+    // Skip if empty or same as last transfer
+    if (!cleanOutput || cleanOutput === pair.lastTransferOutput) return;
+    pair.lastTransferOutput = cleanOutput;
+
+    // Controller output handling
+    if (id === pair.controllerId) {
+      // Check for completion
+      if (/\[TASK_COMPLETE\]/i.test(cleanOutput)) {
+        console.log(`[托管模式] Pair ${pairId}: 任务完成`);
+        pair.active = false;
+        pair.autoMode = false;
+        this.emit('managed-completed', { pairId });
+        return;
+      }
+
+      // Check for user input needed — pause auto mode
+      if (/\[NEED_USER_INPUT\]/i.test(cleanOutput)) {
+        console.log(`[托管模式] Pair ${pairId}: 需要用户输入，暂停自动模式`);
+        pair.autoMode = false;
+        this.emit('managed-paused', { pairId });
+        return;
+      }
+
+      // Check for start execution trigger
+      if (!pair.autoMode && /\[START_EXECUTION\]/i.test(cleanOutput)) {
+        console.log(`[托管模式] Pair ${pairId}: 开始自动执行，控制者切换到 Sonnet`);
+        pair.autoMode = true;
+        // Switch controller to cheaper model for auto execution phase
+        const c = this.sessions.get(pair.controllerId);
+        if (c) c.pty.write('/model sonnet\r');
+        this.emit('managed-started', { pairId });
+      }
+
+      // If in auto mode, send controller's output to executor
+      if (pair.autoMode) {
+        const truncated = cleanOutput.length > 3000 ? '...' + cleanOutput.slice(-3000) : cleanOutput;
+        // Remove the markers from the text sent to executor
+        const instruction = truncated.replace(/\[START_EXECUTION\]/gi, '').replace(/\[TASK_COMPLETE\]/gi, '').trim();
+        if (!instruction) return;
+        setTimeout(() => {
+          if (!pair.active || !pair.autoMode) return;
+          const executor = this.sessions.get(pair.executorId);
+          if (executor) {
+            console.log(`[托管模式] Pair ${pairId}: 控制者指令 → 执行者`);
+            executor.pty.write(instruction + '\r');
+            this.emit('managed-transfer', { pairId, from: 'controller', to: 'executor' });
+          }
+        }, 1000);
+      }
+      return;
+    }
+
+    // Executor output handling — only forward to controller in auto mode
+    if (id === pair.executorId && pair.autoMode) {
+      const truncated = cleanOutput.length > 3000 ? '...' + cleanOutput.slice(-3000) : cleanOutput;
+      setTimeout(() => {
+        if (!pair.active || !pair.autoMode) return;
+        const controller = this.sessions.get(pair.controllerId);
+        if (controller) {
+          console.log(`[托管模式] Pair ${pairId}: 执行者结果 → 控制者审查`);
+          const prompt = `执行者已完成，以下是输出结果，请审查并给出下一步指令。如果全部完成请输出 [TASK_COMPLETE]。\n\n--- 执行者输出 ---\n${truncated}\n--- 输出结束 ---`;
+          controller.pty.write(prompt + '\r');
+          this.emit('managed-transfer', { pairId, from: 'executor', to: 'controller' });
+        }
+      }, 1000);
+    }
   }
 
   private detectUsageInfo(id: string, session: Session): void {
@@ -188,7 +388,7 @@ export class SessionManager extends EventEmitter {
     return null;
   }
 
-  createSession(cwd: string): string {
+  createSession(cwd: string, hidden = false, model = 'opus'): string {
     const id = randomUUID();
     const name = path.basename(cwd);
 
@@ -221,10 +421,10 @@ export class SessionManager extends EventEmitter {
       return 'claude';
     })();
 
-    const shell = process.env.SHELL || (process.platform === 'win32' ? 'powershell.exe' : '/bin/bash');
+    // Spawn claude directly as the PTY process to avoid shell history contamination
     let ptyProcess: pty.IPty;
     try {
-      ptyProcess = pty.spawn(shell, ['-l'], {
+      ptyProcess = pty.spawn(claudePath, ['--dangerously-skip-permissions', '--permission-mode', 'bypassPermissions', '--model', model], {
         name: 'xterm-256color',
         cwd,
         cols: 120,
@@ -235,9 +435,6 @@ export class SessionManager extends EventEmitter {
       this.emit('error', { id, message: `PTY 启动失败: ${(err as Error).message}` });
       throw err;
     }
-
-    // Launch claude inside the shell, clear the command from terminal history/display
-    ptyProcess.write(`clear && ${claudePath} --dangerously-skip-permissions --permission-mode bypassPermissions\r`);
 
     const session: Session = {
       id,
@@ -250,6 +447,12 @@ export class SessionManager extends EventEmitter {
       bufferSize: 0,
       recentOutput: '',
     };
+
+    // Clear buffer after startup command to avoid replaying launch commands
+    setTimeout(() => {
+      session.outputBuffer = [];
+      session.bufferSize = 0;
+    }, 2000);
 
     ptyProcess.onData((data: string) => {
       const bytes = new TextEncoder().encode(data);
@@ -305,7 +508,9 @@ export class SessionManager extends EventEmitter {
     });
 
     this.sessions.set(id, session);
-    this.emit('created', { id, name, cwd });
+    if (!hidden) {
+      this.emit('created', { id, name, cwd });
+    }
     return id;
   }
 
@@ -334,6 +539,13 @@ export class SessionManager extends EventEmitter {
           s.pty.write('y');
         }
       }, 300);
+    }
+
+    // Managed mode: transfer output between paired sessions
+    const managedPair = this.getManagedPairForSession(id);
+    if (managedPair && managedPair.pair.active) {
+      this.handleManagedTransfer(id, status, subStatus);
+      return; // Skip auto-continue for managed sessions
     }
 
     // Auto-continue: when Claude stops to ask a question mid-task, auto-send continue

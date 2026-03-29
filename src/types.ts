@@ -107,6 +107,19 @@ export interface ElectronAPI {
   onPaste(callback: (id: string) => void): () => void;
   onUsageUpdate(callback: (payload: { id: string; usage: UsageInfo }) => void): () => void;
   onRenameRequest?(callback: (id: string) => void): () => void;
+  startManaged(executorId: string): Promise<{ controllerId: string } | null>;
+  stopManaged(executorId: string): void;
+  pauseManaged(executorId: string): void;
+  resumeManaged(executorId: string): void;
+  isManagedAuto(executorId: string): Promise<boolean>;
+  getManagedController(executorId: string): Promise<string | null>;
+  onManagedCreated(callback: (payload: { pairId: string; controllerId: string; executorId: string }) => void): () => void;
+  onManagedStopped(callback: (payload: { pairId: string; executorId: string }) => void): () => void;
+  onManagedPaused(callback: (payload: { pairId: string }) => void): () => void;
+  onManagedResumed(callback: (payload: { pairId: string }) => void): () => void;
+  onManagedAutoStarted(callback: (payload: { pairId: string }) => void): () => void;
+  onManagedCompleted(callback: (payload: { pairId: string }) => void): () => void;
+  onManagedTransfer(callback: (payload: { pairId: string; from: string; to: string }) => void): () => void;
 }
 
 declare global {

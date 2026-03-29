@@ -361,6 +361,32 @@ html, body, #root {
 .browser-go-btn:hover { background: var(--accent-hover); }
 .browser-webview { flex: 1; border: none; }
 
+/* Managed Mode (托管模式) */
+.managed-terminal-split { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+.managed-terminal-top { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+.managed-terminal-bottom { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+.managed-panel-label {
+  font-size: 11px; font-weight: 600; color: var(--accent); padding: 3px 8px;
+  background: var(--bg-sidebar); border-bottom: 1px solid var(--border); flex-shrink: 0;
+  display: flex; align-items: center; gap: 8px;
+}
+.managed-panel-label.controller { color: var(--success); }
+.managed-auto-badge {
+  font-size: 10px; padding: 1px 6px; border-radius: 8px;
+  background: var(--accent); color: var(--bg); font-weight: 600;
+}
+.managed-controls { margin-left: auto; display: flex; gap: 4px; }
+.managed-ctrl-btn {
+  background: none; border: none; cursor: pointer; font-size: 13px;
+  padding: 0 4px; border-radius: 3px; line-height: 1;
+}
+.managed-ctrl-btn.pause { color: var(--accent); }
+.managed-ctrl-btn.resume { color: var(--success); }
+.managed-ctrl-btn.close { color: var(--error); font-size: 16px; }
+.managed-ctrl-btn:hover { background: var(--hover); }
+.managed-divider { height: 2px; background: var(--border); flex-shrink: 0; }
+.auto-approve-toggle.managed.on { background: var(--accent); border-color: var(--accent); }
+
 /* Resize handle */
 .sidebar-resize-handle {
   height: 6px;

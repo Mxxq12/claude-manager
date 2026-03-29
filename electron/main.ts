@@ -224,11 +224,14 @@ ipcMain.on(IPC.SESSION_CREATE, (_, payload: { cwd: string }) => {
       cwd = path.dirname(cwd);
     }
   } catch {}
+  console.log(`[SESSION_CREATE] cwd=${cwd}, existing sessions:`, sessionManager.getAllSessions().map(s => s.cwd));
   const existingId = sessionManager.getSessionIdForCwd(cwd);
   if (existingId) {
+    console.log(`[SESSION_CREATE] Already exists: ${existingId}, switching`);
     safeSend('session:switch-to', { id: existingId });
     return;
   }
+  console.log(`[SESSION_CREATE] Creating new session for ${cwd}`);
   sessionManager.createSession(cwd);
 });
 
@@ -253,6 +256,59 @@ ipcMain.on('session:resize', (_, payload: { id: string; cols: number; rows: numb
 
 ipcMain.on('session:clear-buffer', (_, payload: { id: string }) => {
   sessionManager.clearBuffer(payload.id);
+});
+
+// Managed mode (托管模式)
+ipcMain.handle('managed:start', (_, payload: { executorId: string }) => {
+  return sessionManager.startManagedForSession(payload.executorId);
+});
+
+ipcMain.on('managed:stop', (_, payload: { executorId: string }) => {
+  sessionManager.stopManagedForSession(payload.executorId);
+});
+
+ipcMain.handle('managed:get-controller', (_, payload: { executorId: string }) => {
+  return sessionManager.getManagedControllerIdForSession(payload.executorId);
+});
+
+ipcMain.on('managed:pause', (_, payload: { executorId: string }) => {
+  sessionManager.pauseManagedForSession(payload.executorId);
+});
+
+ipcMain.on('managed:resume', (_, payload: { executorId: string }) => {
+  sessionManager.resumeManagedForSession(payload.executorId);
+});
+
+ipcMain.handle('managed:is-auto', (_, payload: { executorId: string }) => {
+  return sessionManager.isManagedAutoMode(payload.executorId);
+});
+
+sessionManager.on('managed-created', (payload) => {
+  safeSend('managed:created', payload);
+});
+
+sessionManager.on('managed-stopped', (payload) => {
+  safeSend('managed:stopped', payload);
+});
+
+sessionManager.on('managed-paused', (payload) => {
+  safeSend('managed:paused', payload);
+});
+
+sessionManager.on('managed-resumed', (payload) => {
+  safeSend('managed:resumed', payload);
+});
+
+sessionManager.on('managed-started', (payload) => {
+  safeSend('managed:auto-started', payload);
+});
+
+sessionManager.on('managed-completed', (payload) => {
+  safeSend('managed:completed', payload);
+});
+
+sessionManager.on('managed-transfer', (payload) => {
+  safeSend('managed:transfer', payload);
 });
 
 ipcMain.handle('fs:is-directory', (_, filePath: string) => {

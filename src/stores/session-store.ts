@@ -32,6 +32,7 @@ function loadPersistedSessions(): { cwd: string; name: string }[] {
     const seen = new Set<string>();
     return list.filter((s) => {
       if (seen.has(s.cwd)) return false;
+      if (s.cwd.endsWith('/.managed')) return false; // Skip managed controller sessions
       seen.add(s.cwd);
       return true;
     }).map((s) => ({
@@ -47,6 +48,7 @@ function persistSessions(sessions: SessionInfo[]) {
   const seen = new Set<string>();
   const data = sessions
     .filter((s) => s.status !== 'closed')
+    .filter((s) => !s.cwd.endsWith('/.managed'))
     .filter((s) => {
       if (seen.has(s.cwd)) return false;
       seen.add(s.cwd);

@@ -100,6 +100,59 @@ const api = {
     ipcRenderer.on('session:paste', handler);
     return () => ipcRenderer.removeListener('session:paste', handler);
   },
+  async startManaged(executorId: string): Promise<{ controllerId: string } | null> {
+    return ipcRenderer.invoke('managed:start', { executorId });
+  },
+  stopManaged(executorId: string) {
+    ipcRenderer.send('managed:stop', { executorId });
+  },
+  pauseManaged(executorId: string) {
+    ipcRenderer.send('managed:pause', { executorId });
+  },
+  resumeManaged(executorId: string) {
+    ipcRenderer.send('managed:resume', { executorId });
+  },
+  async isManagedAuto(executorId: string): Promise<boolean> {
+    return ipcRenderer.invoke('managed:is-auto', { executorId });
+  },
+  onManagedPaused(callback: (payload: { pairId: string }) => void) {
+    const handler = (_: unknown, payload: any) => callback(payload);
+    ipcRenderer.on('managed:paused', handler);
+    return () => ipcRenderer.removeListener('managed:paused', handler);
+  },
+  onManagedResumed(callback: (payload: { pairId: string }) => void) {
+    const handler = (_: unknown, payload: any) => callback(payload);
+    ipcRenderer.on('managed:resumed', handler);
+    return () => ipcRenderer.removeListener('managed:resumed', handler);
+  },
+  onManagedAutoStarted(callback: (payload: { pairId: string }) => void) {
+    const handler = (_: unknown, payload: any) => callback(payload);
+    ipcRenderer.on('managed:auto-started', handler);
+    return () => ipcRenderer.removeListener('managed:auto-started', handler);
+  },
+  async getManagedController(executorId: string): Promise<string | null> {
+    return ipcRenderer.invoke('managed:get-controller', { executorId });
+  },
+  onManagedCreated(callback: (payload: { pairId: string; controllerId: string; executorId: string }) => void) {
+    const handler = (_: unknown, payload: any) => callback(payload);
+    ipcRenderer.on('managed:created', handler);
+    return () => ipcRenderer.removeListener('managed:created', handler);
+  },
+  onManagedStopped(callback: (payload: { pairId: string; executorId: string }) => void) {
+    const handler = (_: unknown, payload: any) => callback(payload);
+    ipcRenderer.on('managed:stopped', handler);
+    return () => ipcRenderer.removeListener('managed:stopped', handler);
+  },
+  onManagedCompleted(callback: (payload: { pairId: string }) => void) {
+    const handler = (_: unknown, payload: any) => callback(payload);
+    ipcRenderer.on('managed:completed', handler);
+    return () => ipcRenderer.removeListener('managed:completed', handler);
+  },
+  onManagedTransfer(callback: (payload: { pairId: string; from: string; to: string }) => void) {
+    const handler = (_: unknown, payload: any) => callback(payload);
+    ipcRenderer.on('managed:transfer', handler);
+    return () => ipcRenderer.removeListener('managed:transfer', handler);
+  },
   onUsageUpdate(callback: (payload: { id: string; usage: any }) => void) {
     const handler = (_: unknown, payload: any) => callback(payload);
     ipcRenderer.on('session:usage', handler);

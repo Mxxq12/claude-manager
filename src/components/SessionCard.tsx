@@ -27,6 +27,8 @@ interface Props {
   session: SessionInfo;
   isActive: boolean;
   isNewlyIdle?: boolean;
+  isManaged?: boolean;
+  onToggleManaged?: () => void;
   onClick: () => void;
   onClose: () => void;
   onRename: (name: string) => void;
@@ -34,7 +36,7 @@ interface Props {
   onClearTerminal: () => void;
 }
 
-export function SessionCard({ session, isActive, isNewlyIdle, onClick, onClose, onRename, onRestart, onClearTerminal }: Props) {
+export function SessionCard({ session, isActive, isNewlyIdle, isManaged, onToggleManaged, onClick, onClose, onRename, onRestart, onClearTerminal }: Props) {
   const indicator = session.status === 'idle' && session.idleSubStatus === 'approval' ? '🟠' : STATUS_INDICATOR[session.status];
   const [elapsed, setElapsed] = useState('');
   const [autoApprove, setAutoApprove] = useState(false);
@@ -162,6 +164,16 @@ export function SessionCard({ session, isActive, isNewlyIdle, onClick, onClose, 
           title={autoApprove ? '关闭自动审批' : '开启自动审批'}
         >
           {autoApprove ? '自动中' : '自动'}
+        </button>
+        <button
+          className={`auto-approve-toggle ${isManaged ? 'on managed' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleManaged?.();
+          }}
+          title={isManaged ? '关闭托管模式' : '开启托管模式（Sonnet 控制）'}
+        >
+          {isManaged ? '托管中' : '托管'}
         </button>
       </div>
     </div>

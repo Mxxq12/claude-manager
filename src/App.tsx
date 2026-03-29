@@ -116,14 +116,14 @@ export function App() {
   const [rightSessionId, setRightSessionId] = useState<string | null>(null);
   const [rightPaneMode, setRightPaneMode] = useState<'session' | 'browser'>('session');
   const rightSession = sessions.find((s) => s.id === rightSessionId) ?? null;
+  const [managedControllers, setManagedControllers] = useState<Map<string, string>>(new Map());
+  const [managedAutoMode, setManagedAutoMode] = useState<Set<string>>(new Set());
 
   const addSession = useSessionStore((s) => s.addSession);
   const updateStatus = useSessionStore((s) => s.updateStatus);
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
   const setExitCode = useSessionStore((s) => s.setExitCode);
   const updateUsage = useSessionStore((s) => s.updateUsage);
-
-  useEffect(() => { applyTheme(currentTheme); }, [currentTheme]);
 
   const handleThemeChange = (name: string) => {
     const t = themes.find((th) => th.name === name) || themes[0];
@@ -170,7 +170,32 @@ export function App() {
     const offUsage = window.electronAPI.onUsageUpdate?.((p) => {
       updateUsage(p.id, p.usage);
     });
-    return () => { offCreated(); offStatus(); offClosed(); offSwitch?.(); offRename?.(); offUsage?.(); };
+    const offManagedCreated = window.electronAPI.onManagedCreated?.((p) => {
+      setManagedControllers((prev) => new Map(prev).set(p.executorId, p.controllerId));
+    });
+    const offManagedStopped = window.electronAPI.onManagedStopped?.((p) => {
+      setManagedControllers((prev) => { const next = new Map(prev); next.delete(p.executorId); return next; });
+      setManagedAutoMode((prev) => { const next = new Set(prev); next.delete(p.executorId); return next; });
+    });
+    const offManagedAutoStarted = window.electronAPI.onManagedAutoStarted?.((p) => {
+      // Find executor for this pair
+      const pairId = p.pairId;
+      const executorId = pairId.replace('managed-', '');
+      setManagedAutoMode((prev) => new Set(prev).add(executorId));
+    });
+    const offManagedPaused = window.electronAPI.onManagedPaused?.((p) => {
+      const executorId = p.pairId.replace('managed-', '');
+      setManagedAutoMode((prev) => { const next = new Set(prev); next.delete(executorId); return next; });
+    });
+    const offManagedResumed = window.electronAPI.onManagedResumed?.((p) => {
+      const executorId = p.pairId.replace('managed-', '');
+      setManagedAutoMode((prev) => new Set(prev).add(executorId));
+    });
+    const offManagedCompleted = window.electronAPI.onManagedCompleted?.((p) => {
+      const executorId = p.pairId.replace('managed-', '');
+      setManagedAutoMode((prev) => { const next = new Set(prev); next.delete(executorId); return next; });
+    });
+    return () => { offCreated(); offStatus(); offClosed(); offSwitch?.(); offRename?.(); offUsage?.(); offManagedCreated?.(); offManagedStopped?.(); offManagedAutoStarted?.(); offManagedPaused?.(); offManagedResumed?.(); offManagedCompleted?.(); };
   }, []);
 
   useEffect(() => {
@@ -242,7 +267,50 @@ export function App() {
       />
       <div className={`main-panels ${splitView ? 'split' : ''}`}>
         <main className="main-area">
-          <Terminal sessionId={activeSessionId} theme={currentTheme} />
+          {managedControllers.has(activeSessionId ?? '') ? (
+            <div className="managed-terminal-split">
+              <div className="managed-terminal-top">
+                <div className="managed-panel-label">执行者 (Opus)</div>
+                <Terminal sessionId={activeSessionId} theme={currentTheme} />
+              </div>
+              <div className="managed-divider" />
+              <div className="managed-terminal-bottom">
+                <div className="managed-panel-label controller">
+                  <span>控制者 (Sonnet)</span>
+                  {managedAutoMode.has(activeSessionId!) && (
+                    <span className="managed-auto-badge">自动执行中</span>
+                  )}
+                  <div className="managed-controls">
+                    {managedAutoMode.has(activeSessionId!) ? (
+                      <button
+                        className="managed-ctrl-btn pause"
+                        onClick={() => window.electronAPI.pauseManaged(activeSessionId!)}
+                        title="暂停自动执行"
+                      >⏸</button>
+                    ) : managedControllers.has(activeSessionId!) && (
+                      <button
+                        className="managed-ctrl-btn resume"
+                        onClick={() => window.electronAPI.resumeManaged(activeSessionId!)}
+                        title="恢复自动执行"
+                      >▶</button>
+                    )}
+                    <button
+                      className="managed-ctrl-btn close"
+                      onClick={() => {
+                        window.electronAPI.stopManaged(activeSessionId!);
+                        setManagedControllers((prev) => { const next = new Map(prev); next.delete(activeSessionId!); return next; });
+                        setManagedAutoMode((prev) => { const next = new Set(prev); next.delete(activeSessionId!); return next; });
+                      }}
+                      title="关闭托管"
+                    >×</button>
+                  </div>
+                </div>
+                <Terminal sessionId={managedControllers.get(activeSessionId!)!} theme={currentTheme} />
+              </div>
+            </div>
+          ) : (
+            <Terminal sessionId={activeSessionId} theme={currentTheme} />
+          )}
 
           <StatusBar session={activeSession} />
         </main>
