@@ -295,8 +295,41 @@ html, body, #root {
 
 .main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding-top: 36px; }
 
+/* Terminal search bar */
+.terminal-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: #2a2a3d;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.terminal-search-input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 12px;
+  padding: 4px 8px;
+  outline: none;
+}
+.terminal-search-input:focus { border-color: var(--accent); }
+.terminal-search-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+.terminal-search-btn:hover { background: var(--hover); color: var(--text); }
+
 .terminal-container {
   flex: 1;
+  min-height: 0;
   padding: 4px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -378,9 +411,9 @@ html, body, #root {
 .browser-webview { flex: 1; border: none; }
 
 /* Managed Mode (托管模式) */
-.managed-terminal-split { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
-.managed-terminal-top { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
-.managed-terminal-bottom { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+.managed-terminal-split { display: flex; flex-direction: row; flex: 1; overflow: hidden; }
+.managed-terminal-top { display: flex; flex-direction: column; flex: 1; min-width: 0; overflow: hidden; position: relative; }
+.managed-terminal-bottom { display: flex; flex-direction: column; flex: 1; min-width: 0; overflow: hidden; position: relative; }
 .managed-panel-label {
   font-size: 11px; font-weight: 600; color: var(--accent); padding: 3px 8px;
   background: var(--bg-sidebar); border-bottom: 1px solid var(--border); flex-shrink: 0;
@@ -400,7 +433,14 @@ html, body, #root {
 .managed-ctrl-btn.resume { color: var(--success); }
 .managed-ctrl-btn.close { color: var(--error); font-size: 16px; }
 .managed-ctrl-btn:hover { background: var(--hover); }
-.managed-divider { height: 2px; background: var(--border); flex-shrink: 0; }
+.managed-divider {
+  width: 4px;
+  background: var(--border);
+  flex-shrink: 0;
+  cursor: col-resize;
+  transition: background 0.15s;
+}
+.managed-divider:hover { background: var(--accent); }
 .auto-approve-toggle.managed.on { background: var(--accent); border-color: var(--accent); }
 
 /* Resize handle */

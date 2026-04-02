@@ -190,6 +190,11 @@ function createWindow() {
   mainWindow.on('maximize', saveWindowBounds);
   mainWindow.on('unmaximize', saveWindowBounds);
 
+  // Clear badge when window gets focus
+  mainWindow.on('focus', () => {
+    app.setBadgeCount(0);
+  });
+
   // Intercept links: open external URLs in the system default browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http://') || url.startsWith('https://')) {
@@ -534,12 +539,9 @@ sessionManager.on('status', (payload) => {
   safeSend(IPC.SESSION_STATUS, payload);
 
   if (payload.status === 'idle' && mainWindow && !mainWindow.isDestroyed() && !mainWindow.isFocused()) {
-    const session = sessionManager.getSession(payload.id);
-    if (session) {
-      const body = payload.idleSubStatus === 'approval' ? '等待确认' : '任务完成';
-      new Notification({ title: session.name, body }).show();
-      app.dock?.bounce('informational');
-    }
+    // Show badge count on dock icon instead of system notification
+    const currentBadge = app.getBadgeCount() || 0;
+    app.setBadgeCount(currentBadge + 1);
   }
 });
 

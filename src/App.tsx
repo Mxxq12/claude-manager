@@ -1,4 +1,4 @@
-import { useEffect, useState, Component } from 'react';
+import { useEffect, useState, useRef, useCallback, Component } from 'react';
 import type { ReactNode, ErrorInfo } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Terminal } from './components/Terminal';
@@ -118,6 +118,27 @@ export function App() {
   const rightSession = sessions.find((s) => s.id === rightSessionId) ?? null;
   const [managedControllers, setManagedControllers] = useState<Map<string, string>>(new Map());
   const [managedAutoMode, setManagedAutoMode] = useState<Set<string>>(new Set());
+  const [managedSplitRatio, setManagedSplitRatio] = useState(0.5);
+  const managedSplitRef = useRef<HTMLDivElement>(null);
+  const isDraggingManagedSplit = useRef(false);
+
+  const handleManagedDividerMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingManagedSplit.current = true;
+    const onMove = (ev: MouseEvent) => {
+      if (!managedSplitRef.current) return;
+      const rect = managedSplitRef.current.getBoundingClientRect();
+      const ratio = Math.min(0.8, Math.max(0.2, (ev.clientX - rect.left) / rect.width));
+      setManagedSplitRatio(ratio);
+    };
+    const onUp = () => {
+      isDraggingManagedSplit.current = false;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
 
   const addSession = useSessionStore((s) => s.addSession);
   const updateStatus = useSessionStore((s) => s.updateStatus);
@@ -268,13 +289,8 @@ export function App() {
       <div className={`main-panels ${splitView ? 'split' : ''}`}>
         <main className="main-area">
           {managedControllers.has(activeSessionId ?? '') ? (
-            <div className="managed-terminal-split">
-              <div className="managed-terminal-top">
-                <div className="managed-panel-label">执行者 (Opus)</div>
-                <Terminal sessionId={activeSessionId} theme={currentTheme} />
-              </div>
-              <div className="managed-divider" />
-              <div className="managed-terminal-bottom">
+            <div className="managed-terminal-split" ref={managedSplitRef}>
+              <div className="managed-terminal-top" style={{ flex: `0 0 ${managedSplitRatio * 100}%` }}>
                 <div className="managed-panel-label controller">
                   <span>控制者 (Sonnet)</span>
                   {managedAutoMode.has(activeSessionId!) && (
@@ -306,6 +322,11 @@ export function App() {
                   </div>
                 </div>
                 <Terminal sessionId={managedControllers.get(activeSessionId!)!} theme={currentTheme} />
+              </div>
+              <div className="managed-divider" onMouseDown={handleManagedDividerMouseDown} />
+              <div className="managed-terminal-bottom">
+                <div className="managed-panel-label">执行者 (Opus)</div>
+                <Terminal sessionId={activeSessionId} theme={currentTheme} readOnly />
               </div>
             </div>
           ) : (

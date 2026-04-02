@@ -1,8 +1,9 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
+import { SearchAddon } from '@xterm/addon-search';
 import { loadSavedTheme } from '../themes';
 import type { Theme } from '../themes';
 import '@xterm/xterm/css/xterm.css';
@@ -10,6 +11,7 @@ import '@xterm/xterm/css/xterm.css';
 interface Props {
   sessionId: string | null;
   theme?: Theme;
+  readOnly?: boolean;
 }
 
 const FONT_SIZE_KEY = 'claude-manager-font-size';
@@ -25,12 +27,15 @@ function getSavedFontSize(): number {
 interface CachedTerminal {
   xterm: XTerm;
   fitAddon: FitAddon;
+  searchAddon: SearchAddon;
   element: HTMLDivElement;
   cleanups: (() => void)[];
 }
 
 // Global cache of terminal instances keyed by sessionId
 const terminalCache = new Map<string, CachedTerminal>();
+// Sessions that are read-only (managed executor)
+const readOnlySessions = new Set<string>();
 
 function createTerminal(sessionId: string, theme: Theme): CachedTerminal {
   const element = document.createElement('div');
@@ -50,7 +55,9 @@ function createTerminal(sessionId: string, theme: Theme): CachedTerminal {
   });
 
   const fitAddon = new FitAddon();
+  const searchAddon = new SearchAddon();
   xterm.loadAddon(fitAddon);
+  xterm.loadAddon(searchAddon);
   xterm.loadAddon(new WebLinksAddon((_, uri) => {
     window.electronAPI.openExternal(uri);
   }));
@@ -121,8 +128,9 @@ function createTerminal(sessionId: string, theme: Theme): CachedTerminal {
     return true;
   });
 
-  // Forward input to PTY
+  // Forward input to PTY (blocked if session is read-only)
   xterm.onData((data) => {
+    if (readOnlySessions.has(sessionId)) return;
     window.electronAPI.sendInput(sessionId, data);
     window.dispatchEvent(new CustomEvent('session-user-input', { detail: sessionId }));
   });
@@ -197,7 +205,7 @@ function createTerminal(sessionId: string, theme: Theme): CachedTerminal {
     setTimeout(() => xterm.scrollToBottom(), 300);
   });
 
-  const cached: CachedTerminal = { xterm, fitAddon, element, cleanups };
+  const cached: CachedTerminal = { xterm, fitAddon, searchAddon, element, cleanups };
   terminalCache.set(sessionId, cached);
   return cached;
 }
@@ -219,9 +227,22 @@ if (typeof window !== 'undefined' && window.electronAPI) {
   });
 }
 
-export function Terminal({ sessionId, theme }: Props) {
+export function Terminal({ sessionId, theme, readOnly }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const currentSessionRef = useRef<string | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Sync readOnly state
+  useEffect(() => {
+    if (!sessionId) return;
+    if (readOnly) {
+      readOnlySessions.add(sessionId);
+    } else {
+      readOnlySessions.delete(sessionId);
+    }
+  }, [sessionId, readOnly]);
 
   // Update theme on all cached terminals
   useEffect(() => {
@@ -258,8 +279,21 @@ export function Terminal({ sessionId, theme }: Props) {
     });
     resizeObserver.observe(containerRef.current);
 
-    // Keyboard shortcuts (font size, copy)
+    // Keyboard shortcuts (font size, copy, search)
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.metaKey && e.key === 'f') {
+        e.preventDefault();
+        setShowSearch(true);
+        setTimeout(() => searchInputRef.current?.focus(), 50);
+        return;
+      }
+      if (e.key === 'Escape') {
+        setShowSearch(false);
+        setSearchQuery('');
+        cached!.searchAddon.clearDecorations();
+        cached!.xterm.focus();
+        return;
+      }
       if (!e.metaKey) return;
       if (e.key === 'c' && cached!.xterm.hasSelection()) {
         e.preventDefault();
@@ -323,17 +357,82 @@ export function Terminal({ sessionId, theme }: Props) {
     }
   }, [sessionId]);
 
+  const handleSearch = useCallback((query: string) => {
+    setSearchQuery(query);
+    if (!sessionId) return;
+    const cached = terminalCache.get(sessionId);
+    if (!cached) return;
+    if (query) {
+      cached.searchAddon.findNext(query);
+    } else {
+      cached.searchAddon.clearDecorations();
+    }
+  }, [sessionId]);
+
+  const handleSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (!sessionId) return;
+      const cached = terminalCache.get(sessionId);
+      if (!cached) return;
+      if (e.shiftKey) {
+        cached.searchAddon.findPrevious(searchQuery);
+      } else {
+        cached.searchAddon.findNext(searchQuery);
+      }
+    }
+    if (e.key === 'Escape') {
+      setShowSearch(false);
+      setSearchQuery('');
+      if (sessionId) {
+        const cached = terminalCache.get(sessionId);
+        cached?.searchAddon.clearDecorations();
+        cached?.xterm.focus();
+      }
+    }
+  }, [sessionId, searchQuery]);
+
   if (!sessionId) {
     return <div className="terminal-empty"><p>未选择会话，点击"+ 新建"开始</p></div>;
   }
 
   return (
-    <div
-      ref={containerRef}
-      className="terminal-container"
-      onDrop={handleTerminalDrop}
-      onDragOver={handleTerminalDragOver}
-      onContextMenu={handleTerminalContextMenu}
-    />
+    <>
+      {showSearch && (
+        <div className="terminal-search-bar">
+          <input
+            ref={searchInputRef}
+            className="terminal-search-input"
+            type="text"
+            placeholder="搜索..."
+            value={searchQuery}
+            onChange={(e) => handleSearch(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+          />
+          <button className="terminal-search-btn" onClick={() => {
+            const cached = sessionId ? terminalCache.get(sessionId) : null;
+            cached?.searchAddon.findPrevious(searchQuery);
+          }}>▲</button>
+          <button className="terminal-search-btn" onClick={() => {
+            const cached = sessionId ? terminalCache.get(sessionId) : null;
+            cached?.searchAddon.findNext(searchQuery);
+          }}>▼</button>
+          <button className="terminal-search-btn" onClick={() => {
+            setShowSearch(false);
+            setSearchQuery('');
+            const cached = sessionId ? terminalCache.get(sessionId) : null;
+            cached?.searchAddon.clearDecorations();
+            cached?.xterm.focus();
+          }}>×</button>
+        </div>
+      )}
+      <div
+        ref={containerRef}
+        className="terminal-container"
+        onDrop={handleTerminalDrop}
+        onDragOver={handleTerminalDragOver}
+        onContextMenu={handleTerminalContextMenu}
+      />
+    </>
   );
 }
