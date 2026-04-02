@@ -102,6 +102,8 @@ export interface ElectronAPI {
   openPath(path: string): void;
   showSessionContextMenu(id: string, context?: string): void;
   confirmAndCreateSession(path: string): void;
+  onExtractReply(callback: (sessionId: string) => void): () => void;
+  sendExtractedReply(sessionId: string, text: string): void;
   onSwitchTo(callback: (id: string) => void): () => void;
   onClearTerminal(callback: (id: string) => void): () => void;
   onCopyTrimmed(callback: (id: string) => void): () => void;

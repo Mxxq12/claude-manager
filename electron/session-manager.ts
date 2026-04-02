@@ -88,6 +88,8 @@ export class SessionManager extends EventEmitter {
     this.autoApproveSessions.add(executorId);
 
     const pairId = `managed-${executorId}`;
+    const logFile = require('path').join(require('os').homedir(), '.claude', 'managed-debug.log');
+    require('fs').appendFileSync(logFile, `[${new Date().toISOString()}] MANAGED PAIR: executor=${executorId.slice(0,8)} controller=${controllerId.slice(0,8)} pairId=${pairId}\n`);
     this.managedPairs.set(pairId, {
       controllerId,
       executorId,
@@ -151,6 +153,8 @@ export class SessionManager extends EventEmitter {
     const pairId = `managed-${executorId}`;
     const pair = this.managedPairs.get(pairId);
     if (!pair) return;
+    const logFile = require('path').join(require('os').homedir(), '.claude', 'managed-debug.log');
+    require('fs').appendFileSync(logFile, `[${new Date().toISOString()}] STOP MANAGED: executor=${executorId.slice(0,8)} stack=${new Error().stack?.split('\n').slice(1,4).join(' | ')}\n`);
     pair.active = false;
     // Close the controller session
     this.closeSession(pair.controllerId);
@@ -182,87 +186,16 @@ export class SessionManager extends EventEmitter {
     if (!managed || !managed.pair.active) return;
 
     const { pair, pairId } = managed;
+
+    // Check for START_EXECUTION in recentOutput (before requesting extract)
     const session = this.sessions.get(id);
-    if (!session) return;
-
-    // Extract Claude's reply text from raw terminal output
-    // Strategy: find the last "● [timestamp]" block which is Claude's actual reply
-    const rawOutput = session.recentOutput;
-
-    // Step 1: Strip all ANSI/terminal control sequences
-    let stripped = rawOutput
-      .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')
-      .replace(/\x1b\][^\x07]*\x07/g, '')
-      .replace(/\x1b[()][AB012]/g, '')
-      .replace(/\x1b[>=]/g, '')
-      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
-
-    // Step 2: Extract text after the last "● [timestamp]" marker (Claude's reply)
-    const replyMatch = stripped.match(/●\s*\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\]\s*([\s\S]*?)$/);
-    if (replyMatch) {
-      stripped = replyMatch[1];
-    }
-
-    // Step 3: Clean line by line
-    const cleanOutput = stripped
-      .replace(/\r\n/g, '\n')
-      .replace(/\r/g, '\n')
-      .split('\n')
-      .filter(line => {
-        const t = line.trim();
-        if (!t) return false;
-        if (/Opus[\s\d.()Mcontext]*[│|]/.test(t)) return false;
-        if (/Sonnet[\s\d.()Mcontext]*[│|]/.test(t)) return false;
-        if (/^[>❯⏵]\s*$/.test(t)) return false;
-        if (/^⏵⏵/.test(t)) return false;
-        if (/^─{3,}/.test(t)) return false;
-        if (/^-{3,}/.test(t)) return false;
-        if (/[✽✿⚙✶]\s*\w.*…/.test(t)) return false;
-        if (/bypass permissions/i.test(t)) return false;
-        if (/^Recent activity/.test(t)) return false;
-        if (/^No recent activity/.test(t)) return false;
-        if (/^⎿/.test(t)) return false;
-        if (/^Tip:/.test(t)) return false;
-        if (/^Context\s+\d/.test(t)) return false;
-        if (/shift\+tab to cycle/i.test(t)) return false;
-        if (/running stop hooks/i.test(t)) return false;
-        return true;
-      })
-      .join('\n')
-      .trim();
-
-    // Skip if empty or same as last transfer
-    if (!cleanOutput || cleanOutput === pair.lastTransferOutput) return;
-    pair.lastTransferOutput = cleanOutput;
-
-    // Controller output handling
-    if (id === pair.controllerId) {
-      // Check for completion — stop everything
-      if (/\[TASK_COMPLETE\]/i.test(cleanOutput)) {
-        console.log(`[托管模式] Pair ${pairId}: 任务完成`);
-        pair.active = false;
-        pair.autoMode = false;
-        pair.waitingForResponse = false;
-        this.emit('managed-completed', { pairId });
-        return;
-      }
-
-      // Check for user input needed — pause auto mode
-      if (/\[NEED_USER_INPUT\]/i.test(cleanOutput)) {
-        console.log(`[托管模式] Pair ${pairId}: 需要用户输入，暂停自动模式`);
-        pair.autoMode = false;
-        pair.waitingForResponse = false;
-        this.emit('managed-paused', { pairId });
-        return;
-      }
-
-      // Check for start execution trigger — enable auto mode and prompt for first instruction
-      if (!pair.autoMode && /\[START_EXECUTION\]/i.test(cleanOutput)) {
+    if (session && id === pair.controllerId) {
+      const raw = session.recentOutput;
+      if (!pair.autoMode && /\[START_EXECUTION\]/i.test(raw)) {
         console.log(`[托管模式] Pair ${pairId}: 开始自动执行`);
         pair.autoMode = true;
         session.recentOutput = '';
         this.emit('managed-started', { pairId });
-        // Auto-prompt controller to output first instruction
         setTimeout(() => {
           const c = this.sessions.get(pair.controllerId);
           if (c && pair.active && pair.autoMode) {
@@ -271,51 +204,67 @@ export class SessionManager extends EventEmitter {
         }, 1000);
         return;
       }
-
-      // If in auto mode, send controller's output to executor
-      // But only if we're not already waiting for executor to finish
-      if (pair.autoMode && !pair.waitingForResponse) {
-        const truncated = cleanOutput.length > 3000 ? '...' + cleanOutput.slice(-3000) : cleanOutput;
-        const instruction = truncated.replace(/\[START_EXECUTION\]/gi, '').replace(/\[TASK_COMPLETE\]/gi, '').trim();
-        console.log(`[托管模式] 控制者指令内容 (${instruction.length}字): ${instruction.slice(0, 200)}`);
-        if (!instruction) {
-          console.log(`[托管模式] 指令为空，跳过`);
-          return;
-        }
-        pair.waitingForResponse = true; // lock until executor responds
-        session.recentOutput = ''; // clear so next time we get fresh output
-        const logFile = require('path').join(require('os').homedir(), '.claude', 'managed-debug.log');
-        require('fs').appendFileSync(logFile, `[${new Date().toISOString()}] SENDING TO EXECUTOR (${instruction.length}字):\n${instruction.slice(0, 500)}\n---\n`);
-        setTimeout(() => {
-          if (!pair.active || !pair.autoMode) {
-            require('fs').appendFileSync(logFile, `[${new Date().toISOString()}] ABORTED: active=${pair.active}, autoMode=${pair.autoMode}\n`);
-            return;
-          }
-          const executor = this.sessions.get(pair.executorId);
-          if (executor) {
-            require('fs').appendFileSync(logFile, `[${new Date().toISOString()}] WRITING TO EXECUTOR PTY\n`);
-            executor.pty.write(instruction + '\r');
-            this.emit('managed-transfer', { pairId, from: 'controller', to: 'executor' });
-          }
-        }, 1000);
+      if (/\[TASK_COMPLETE\]/i.test(raw)) {
+        pair.active = false;
+        pair.autoMode = false;
+        pair.waitingForResponse = false;
+        this.emit('managed-completed', { pairId });
+        return;
       }
-      return;
+      if (/\[NEED_USER_INPUT\]/i.test(raw)) {
+        pair.autoMode = false;
+        pair.waitingForResponse = false;
+        this.emit('managed-paused', { pairId });
+        return;
+      }
     }
 
-    // Executor output handling — only forward to controller in auto mode
-    // And only when controller is waiting for our response
-    if (id === pair.executorId && pair.autoMode) {
-      console.log(`[托管模式] 执行者 idle, waitingForResponse=${pair.waitingForResponse}, cleanOutput(${cleanOutput.length}字): ${cleanOutput.slice(0, 200)}`);
+    if (!pair.autoMode) return;
+
+    // Request frontend to extract clean reply text from xterm buffer
+    // Controller idle & not waiting → extract controller reply → send to executor
+    // Executor idle & waiting → extract executor reply → send to controller
+    if (id === pair.controllerId && !pair.waitingForResponse) {
+      this.emit('request-extract-reply', { sessionId: id });
+    } else if (id === pair.executorId && pair.waitingForResponse) {
+      this.emit('request-extract-reply', { sessionId: id });
     }
-    if (id === pair.executorId && pair.autoMode && pair.waitingForResponse) {
-      const truncated = cleanOutput.length > 3000 ? '...' + cleanOutput.slice(-3000) : cleanOutput;
-      pair.waitingForResponse = false; // unlock, now waiting for controller to respond
-      session.recentOutput = ''; // clear so next time we get fresh output
+  }
+
+  // Called when frontend sends back extracted clean text
+  handleExtractedReply(sessionId: string, text: string): void {
+    const managed = this.getManagedPairForSession(sessionId);
+    if (!managed || !managed.pair.active || !managed.pair.autoMode) return;
+
+    const { pair, pairId } = managed;
+    if (!text || text === pair.lastTransferOutput) return;
+    pair.lastTransferOutput = text;
+
+    const logFile = require('path').join(require('os').homedir(), '.claude', 'managed-debug.log');
+
+    if (sessionId === pair.controllerId) {
+      // Controller reply → send to executor
+      const instruction = text.replace(/\[START_EXECUTION\]/gi, '').replace(/\[TASK_COMPLETE\]/gi, '').trim();
+      if (!instruction) return;
+      pair.waitingForResponse = true;
+      require('fs').appendFileSync(logFile, `[${new Date().toISOString()}] SENDING TO EXECUTOR (${instruction.length}字):\n${instruction.slice(0, 500)}\n---\n`);
+      setTimeout(() => {
+        if (!pair.active || !pair.autoMode) return;
+        const executor = this.sessions.get(pair.executorId);
+        if (executor) {
+          executor.pty.write(instruction + '\r');
+          this.emit('managed-transfer', { pairId, from: 'controller', to: 'executor' });
+        }
+      }, 1000);
+    } else if (sessionId === pair.executorId) {
+      // Executor reply → send to controller
+      pair.waitingForResponse = false;
+      const truncated = text.length > 3000 ? '...' + text.slice(-3000) : text;
+      require('fs').appendFileSync(logFile, `[${new Date().toISOString()}] SENDING TO CONTROLLER (${truncated.length}字):\n${truncated.slice(0, 500)}\n---\n`);
       setTimeout(() => {
         if (!pair.active || !pair.autoMode) return;
         const controller = this.sessions.get(pair.controllerId);
         if (controller) {
-          console.log(`[托管模式] Pair ${pairId}: 执行者结果 → 控制者审查`);
           const prompt = `执行者已完成，输出如下。请审查并给出下一步指令，或输出 [TASK_COMPLETE] 结束任务。\n\n${truncated}`;
           controller.pty.write(prompt + '\r');
           this.emit('managed-transfer', { pairId, from: 'executor', to: 'controller' });
@@ -464,6 +413,8 @@ export class SessionManager extends EventEmitter {
       CLAUDE_MANAGER_PORT: String(this.hookServerPort),
       CLAUDE_MANAGER_SESSION_ID: id,
     };
+    const logFile = require('path').join(require('os').homedir(), '.claude', 'managed-debug.log');
+    require('fs').appendFileSync(logFile, `[${new Date().toISOString()}] CREATE SESSION: id=${id.slice(0,8)} cwd=${cwd} port=${this.hookServerPort} hidden=${hidden}\n`);
 
     // Resolve claude path - needed when launched from Finder where PATH is limited
     const claudePath = (() => {
@@ -503,9 +454,9 @@ export class SessionManager extends EventEmitter {
       this.emit('error', { id, message: `PTY 启动失败: ${(err as Error).message}` });
       throw err;
     }
-    // Clear shell startup noise, then launch claude (use default model from settings.json for 1M context)
+    // Export env vars so claude's hook subprocesses can access them, then launch claude
     const resumeFlag = resume ? ' --continue' : '';
-    ptyProcess.write(`clear && ${claudePath} --dangerously-skip-permissions --permission-mode bypassPermissions${resumeFlag}\r`);
+    ptyProcess.write(`export CLAUDE_MANAGER_PORT=${this.hookServerPort} CLAUDE_MANAGER_SESSION_ID=${id} && clear && ${claudePath} --dangerously-skip-permissions --permission-mode bypassPermissions${resumeFlag}\r`);
 
     const session: Session = {
       id,

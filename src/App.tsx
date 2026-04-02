@@ -216,7 +216,18 @@ export function App() {
       const executorId = p.pairId.replace('managed-', '');
       setManagedAutoMode((prev) => { const next = new Set(prev); next.delete(executorId); return next; });
     });
-    return () => { offCreated(); offStatus(); offClosed(); offSwitch?.(); offRename?.(); offUsage?.(); offManagedCreated?.(); offManagedStopped?.(); offManagedAutoStarted?.(); offManagedPaused?.(); offManagedResumed?.(); offManagedCompleted?.(); };
+    // Handle extract-reply requests from backend
+    const offExtractReply = window.electronAPI.onExtractReply?.((sessionId) => {
+      window.dispatchEvent(new CustomEvent('extract-managed-reply', {
+        detail: {
+          sessionId,
+          callback: (text: string) => {
+            window.electronAPI.sendExtractedReply(sessionId, text);
+          },
+        },
+      }));
+    });
+    return () => { offCreated(); offStatus(); offClosed(); offSwitch?.(); offRename?.(); offUsage?.(); offManagedCreated?.(); offManagedStopped?.(); offManagedAutoStarted?.(); offManagedPaused?.(); offManagedResumed?.(); offManagedCompleted?.(); offExtractReply?.(); };
   }, []);
 
   useEffect(() => {

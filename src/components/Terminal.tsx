@@ -205,6 +205,47 @@ function createTerminal(sessionId: string, theme: Theme): CachedTerminal {
     setTimeout(() => xterm.scrollToBottom(), 300);
   });
 
+  // Listen for managed reply extraction requests
+  const handleExtractReply = (e: Event) => {
+    const detail = (e as CustomEvent).detail;
+    if (detail.sessionId !== sessionId) return;
+    // Read xterm buffer from bottom up, find last "● [timestamp]" line
+    const buf = xterm.buffer.active;
+    let replyLines: string[] = [];
+    let foundMarker = false;
+    for (let i = buf.baseY + buf.cursorY; i >= 0; i--) {
+      const line = buf.getLine(i);
+      if (!line) continue;
+      const text = line.translateToString().trim();
+      if (/●\s*\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\]/.test(text)) {
+        // Found the marker, take content after timestamp
+        const after = text.replace(/●\s*\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\]\s*/, '');
+        if (after) replyLines.unshift(after);
+        foundMarker = true;
+        break;
+      }
+      replyLines.unshift(text);
+    }
+    if (foundMarker) {
+      // Clean: remove empty lines at start/end, remove prompt lines
+      const clean = replyLines
+        .filter(l => {
+          if (!l) return false;
+          if (/^[>❯]\s*$/.test(l)) return false;
+          if (/Opus.*[│|]/i.test(l)) return false;
+          if (/Sonnet.*[│|]/i.test(l)) return false;
+          return true;
+        })
+        .join('\n')
+        .trim();
+      detail.callback(clean);
+    } else {
+      detail.callback('');
+    }
+  };
+  window.addEventListener('extract-managed-reply', handleExtractReply);
+  cleanups.push(() => window.removeEventListener('extract-managed-reply', handleExtractReply));
+
   const cached: CachedTerminal = { xterm, fitAddon, searchAddon, element, cleanups };
   terminalCache.set(sessionId, cached);
   return cached;

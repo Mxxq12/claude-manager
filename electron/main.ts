@@ -44,7 +44,8 @@ const sessionManager = new SessionManager();
 const hookServer = http.createServer((req, res) => {
   const url = new URL(req.url || '/', `http://localhost`);
   const parts = url.pathname.split('/').filter(Boolean);
-  // GET /idle/:sessionId or /busy/:sessionId
+  const logFile = path.join(os.homedir(), '.claude', 'managed-debug.log');
+  fs.appendFileSync(logFile, `[${new Date().toISOString()}] HOOK: ${req.url} session=${parts[1]?.slice(0,8)}\n`);
   if (parts.length === 2) {
     const [action, sessionId] = parts;
     if (action === 'idle') {
@@ -533,6 +534,16 @@ sessionManager.on('created', (payload) => {
 
 sessionManager.on('data', (payload) => {
   safeSend(IPC.SESSION_DATA, payload);
+});
+
+// Managed mode: request frontend to extract clean reply from xterm buffer
+sessionManager.on('request-extract-reply', (payload: { sessionId: string }) => {
+  safeSend('managed:extract-reply', payload);
+});
+
+// Handle extracted reply from renderer (for managed mode)
+ipcMain.on('managed:extracted-reply', (_, payload: { sessionId: string; text: string }) => {
+  sessionManager.handleExtractedReply(payload.sessionId, payload.text);
 });
 
 sessionManager.on('status', (payload) => {

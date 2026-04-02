@@ -78,6 +78,14 @@ const api = {
   openExternal(url: string) {
     ipcRenderer.send('shell:open-external', { url });
   },
+  onExtractReply(callback: (sessionId: string) => void) {
+    const handler = (_: unknown, payload: { sessionId: string }) => callback(payload.sessionId);
+    ipcRenderer.on('managed:extract-reply', handler);
+    return () => ipcRenderer.removeListener('managed:extract-reply', handler);
+  },
+  sendExtractedReply(sessionId: string, text: string) {
+    ipcRenderer.send('managed:extracted-reply', { sessionId, text });
+  },
   onSwitchTo(callback: (id: string) => void) {
     const handler = (_: unknown, payload: { id: string }) => callback(payload.id);
     ipcRenderer.on('session:switch-to', handler);
