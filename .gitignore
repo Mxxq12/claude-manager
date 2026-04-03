@@ -3,3 +3,6 @@ dist/
 dist-electron/
 release/
 *.tsbuildinfo
+.managed/
+web-dist/
+*.buf

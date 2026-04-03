@@ -2,7 +2,7 @@
   "appId": "com.claude-manager.app",
   "productName": "Claude Manager",
   "directories": { "output": "release" },
-  "files": ["dist/**/*", "dist-electron/**/*", "node_modules/node-pty/**/*", "assets/**/*"],
+  "files": ["dist/**/*", "dist-electron/**/*", "web-dist/**/*", "node_modules/node-pty/**/*", "assets/**/*"],
   "asar": false,
   "mac": { "target": "dmg", "icon": "assets/icon.icns" }
 }

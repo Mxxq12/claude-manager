@@ -5,6 +5,7 @@ import os from 'os';
 import http from 'http';
 import { execSync } from 'child_process';
 import { SessionManager } from './session-manager';
+// web-server imported dynamically to avoid startup crash
 
 // Fix environment when launched from Finder (macOS doesn't inherit shell env vars like PATH, HTTPS_PROXY, etc.)
 if (process.platform === 'darwin' && !process.env.PATH?.includes('/opt/homebrew')) {
@@ -60,12 +61,22 @@ const hookServer = http.createServer((req, res) => {
   res.end('ok');
 });
 
+const HOOK_PORT = 45819; // Fixed port so hooks survive app restart
+
 function startHookServer(): Promise<number> {
   return new Promise((resolve) => {
-    hookServer.listen(0, '127.0.0.1', () => {
+    hookServer.listen(HOOK_PORT, '127.0.0.1', () => {
       const addr = hookServer.address() as { port: number };
       console.log(`Hook server listening on port ${addr.port}`);
       resolve(addr.port);
+    });
+    hookServer.on('error', () => {
+      // Port in use, fall back to random
+      hookServer.listen(0, '127.0.0.1', () => {
+        const addr = hookServer.address() as { port: number };
+        console.log(`Hook server listening on fallback port ${addr.port}`);
+        resolve(addr.port);
+      });
     });
   });
 }
@@ -228,6 +239,18 @@ app.whenReady().then(async () => {
   const port = await startHookServer();
   sessionManager.setHookServerPort(port);
   setupClaudeHooks(port);
+
+  // Start web remote server before window creation
+  const WEB_PORT = parseInt(process.env.CLAUDE_REMOTE_PORT || '4000');
+  try {
+    const { startWebServer } = require('./web-server');
+    startWebServer(sessionManager, WEB_PORT).catch((err: Error) => {
+      console.error('[web-remote] 启动失败:', err);
+    });
+  } catch (err) {
+    console.error('[web-remote] 加载失败:', err);
+  }
+
   createWindow();
 
   // Check if claude CLI is available
@@ -562,4 +585,8 @@ sessionManager.on('closed', (payload) => {
 
 sessionManager.on('usage', (payload) => {
   safeSend('session:usage', payload);
+});
+
+sessionManager.on('auto-approve-changed', (payload) => {
+  safeSend('auto-approve:changed', payload);
 });

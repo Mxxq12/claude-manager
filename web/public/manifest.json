@@ -1,0 +1,20 @@
+{
+  "name": "Claude Manager",
+  "short_name": "CM",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#0d1117",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='192' height='192'><rect width='192' height='192' rx='32' fill='%2358a6ff'/><text x='96' y='120' text-anchor='middle' font-size='100' fill='white' font-family='sans-serif'>CM</text></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='512' height='512'><rect width='512' height='512' rx='64' fill='%2358a6ff'/><text x='256' y='320' text-anchor='middle' font-size='260' fill='white' font-family='sans-serif'>CM</text></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}

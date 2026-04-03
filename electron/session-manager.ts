@@ -30,6 +30,10 @@ interface Session {
 }
 
 const MAX_BUFFER_BYTES = 2_000_000;
+const BUFFER_CACHE_DIR = require('path').join(require('os').homedir(), '.claude', 'buffer-cache');
+
+// Ensure buffer cache directory exists
+try { require('fs').mkdirSync(BUFFER_CACHE_DIR, { recursive: true }); } catch {}
 
 interface ManagedPair {
   controllerId: string;  // controller - Sonnet
@@ -61,6 +65,7 @@ export class SessionManager extends EventEmitter {
     } else {
       this.autoApproveSessions.delete(id);
     }
+    this.emit('auto-approve-changed', { id, enabled });
   }
 
   isAutoApprove(id: string): boolean {
@@ -476,6 +481,10 @@ export class SessionManager extends EventEmitter {
       session.bufferSize = 0;
     }, 2000);
 
+    // Buffer cache file keyed by cwd (persists across restarts)
+    const cwdHash = cwd.replace(/\//g, '-').replace(/^-/, '');
+    const bufferCacheFile = require('path').join(BUFFER_CACHE_DIR, `${cwdHash}.buf`);
+
     ptyProcess.onData((data: string) => {
       const bytes = new TextEncoder().encode(data);
       session.outputBuffer.push(bytes);
@@ -485,6 +494,17 @@ export class SessionManager extends EventEmitter {
         const removed = session.outputBuffer.shift()!;
         session.bufferSize -= removed.length;
       }
+
+      // Persist to disk (append, truncate if too large)
+      try {
+        const fs = require('fs');
+        fs.appendFileSync(bufferCacheFile, Buffer.from(bytes));
+        const stat = fs.statSync(bufferCacheFile);
+        if (stat.size > MAX_BUFFER_BYTES) {
+          const buf = fs.readFileSync(bufferCacheFile);
+          fs.writeFileSync(bufferCacheFile, buf.slice(-MAX_BUFFER_BYTES / 2));
+        }
+      } catch {}
 
       this.emit('data', { id, data: bytes });
 
@@ -642,6 +662,7 @@ export class SessionManager extends EventEmitter {
     const session = this.sessions.get(id);
     if (!session) return;
     if (session.rateLimitTimer) clearTimeout(session.rateLimitTimer);
+    this.emit('closed', { id, exitCode: 0 });
     session.pty.kill();
     this.sessions.delete(id);
   }
@@ -652,7 +673,29 @@ export class SessionManager extends EventEmitter {
   }
 
   getBuffer(id: string): Uint8Array[] {
-    return this.sessions.get(id)?.outputBuffer ?? [];
+    const session = this.sessions.get(id);
+    if (!session) return [];
+
+    // If memory buffer has data, use it
+    if (session.outputBuffer.length > 0) return session.outputBuffer;
+
+    // Try loading from disk cache
+    try {
+      const fs = require('fs');
+      const cwdHash = session.cwd.replace(/\//g, '-').replace(/^-/, '');
+      const cacheFile = require('path').join(BUFFER_CACHE_DIR, `${cwdHash}.buf`);
+      if (fs.existsSync(cacheFile)) {
+        const data = fs.readFileSync(cacheFile);
+        if (data.length > 0) {
+          const chunk = new Uint8Array(data);
+          session.outputBuffer.push(chunk);
+          session.bufferSize = chunk.length;
+          return session.outputBuffer;
+        }
+      }
+    } catch {}
+
+    return [];
   }
 
   clearBuffer(id: string): void {

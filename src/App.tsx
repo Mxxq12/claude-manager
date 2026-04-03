@@ -179,8 +179,7 @@ export function App() {
     const offCreated = window.electronAPI.onSessionCreated((p) => addSession(p.id, p.name, p.cwd));
     const offStatus = window.electronAPI.onSessionStatus((p) => updateStatus(p.id, p.status, p.idleSubStatus, p.timestamp));
     const offClosed = window.electronAPI.onSessionClosed((p) => {
-      updateStatus(p.id, p.exitCode === 0 ? 'closed' : 'error', undefined, Date.now());
-      setExitCode(p.id, p.exitCode);
+      useSessionStore.getState().removeSession(p.id);
     });
     const offSwitch = window.electronAPI.onSwitchTo?.((id) => {
       setActiveSession(id);

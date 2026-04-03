@@ -40,6 +40,15 @@ export function SessionCard({ session, isActive, isNewlyIdle, isManaged, onToggl
   const indicator = session.status === 'idle' && session.idleSubStatus === 'approval' ? '🟠' : STATUS_INDICATOR[session.status];
   const [elapsed, setElapsed] = useState('');
   const [autoApprove, setAutoApprove] = useState(false);
+
+  // Sync autoApprove from backend (when changed via web remote)
+  useEffect(() => {
+    const off = window.electronAPI.onAutoApproveChanged?.((p) => {
+      if (p.id === session.id) setAutoApprove(p.enabled);
+    });
+    return () => { off?.(); };
+  }, [session.id]);
+
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);

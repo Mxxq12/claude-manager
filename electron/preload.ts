@@ -78,6 +78,11 @@ const api = {
   openExternal(url: string) {
     ipcRenderer.send('shell:open-external', { url });
   },
+  onAutoApproveChanged(callback: (payload: { id: string; enabled: boolean }) => void) {
+    const handler = (_: unknown, payload: { id: string; enabled: boolean }) => callback(payload);
+    ipcRenderer.on('auto-approve:changed', handler);
+    return () => ipcRenderer.removeListener('auto-approve:changed', handler);
+  },
   onExtractReply(callback: (sessionId: string) => void) {
     const handler = (_: unknown, payload: { sessionId: string }) => callback(payload.sessionId);
     ipcRenderer.on('managed:extract-reply', handler);
