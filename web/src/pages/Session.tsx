@@ -217,15 +217,9 @@ export default function Session() {
       recognitionRef.current = null;
     }
     setIsRecording(false);
-    // Auto-send after recognition completes
-    setTimeout(() => {
-      const currentInput = (document.querySelector('.toolbar-input-row input') as HTMLInputElement)?.value;
-      if (currentInput?.trim() && id) {
-        wsSend({ type: 'session.input', payload: { sessionId: id, text: currentInput } });
-        setInput('');
-      }
-    }, 500);
-  }, [id]);
+    // Switch back to keyboard mode so user can review/edit before sending
+    setVoiceMode(false);
+  }, []);
 
   const handleApprove = useCallback(() => {
     if (!id) return;
@@ -354,7 +348,7 @@ export default function Session() {
                 onMouseDown={startRecording}
                 onMouseUp={stopRecording}
                 onMouseLeave={() => { if (isRecording) stopRecording(); }}
-              >{isRecording ? '松开 发送' : '按住 说话'}</button>
+              >{isRecording ? '松开 结束' : '按住 说话'}</button>
             ) : (
               <>
                 <textarea

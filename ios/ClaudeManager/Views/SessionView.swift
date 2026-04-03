@@ -8,6 +8,8 @@ struct SessionView: View {
 
     @State private var inputText = ""
     @State private var inputMode: InputMode = .keyboard
+    @State private var showVoicePreview = false
+    @State private var voicePreviewText = ""
     @State private var isRecording = false
     @State private var showQuickKeys = true
 
@@ -81,6 +83,23 @@ struct SessionView: View {
         .onDisappear {
             viewModel.webSocketService.removeOutputListeners(sessionId: sessionId)
             stopRecording()
+        }
+        .sheet(isPresented: $showVoicePreview) {
+            VoicePreviewSheet(
+                text: $voicePreviewText,
+                onConfirm: {
+                    if !voicePreviewText.isEmpty {
+                        viewModel.webSocketService.sendInput(sessionId: sessionId, text: voicePreviewText)
+                    }
+                    showVoicePreview = false
+                    voicePreviewText = ""
+                },
+                onCancel: {
+                    showVoicePreview = false
+                    voicePreviewText = ""
+                }
+            )
+            .presentationDetents([.medium])
         }
     }
 
@@ -220,7 +239,7 @@ struct SessionView: View {
             } else {
                 // Voice input - hold to speak
                 Button(action: {}) {
-                    Text(isRecording ? "松开发送" : "按住说话")
+                    Text(isRecording ? "松开结束" : "按住说话")
                         .font(.subheadline)
                         .foregroundColor(isRecording ? .white : .textSecondary)
                         .frame(maxWidth: .infinity)
@@ -333,10 +352,12 @@ struct SessionView: View {
 
     private func stopRecordingAndSend() {
         stopRecording()
-        // Small delay to ensure final transcription is received
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            if !inputText.isEmpty {
-                sendMessage()
+        // Show preview dialog for user to review/edit/confirm
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            voicePreviewText = inputText
+            inputText = ""
+            if !voicePreviewText.isEmpty {
+                showVoicePreview = true
             }
         }
     }
@@ -350,5 +371,60 @@ struct SessionView: View {
         recognitionRequest = nil
         recognitionTask = nil
         isRecording = false
+    }
+}
+
+// MARK: - Voice Preview Sheet
+
+struct VoicePreviewSheet: View {
+    @Binding var text: String
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("语音识别结果")
+                .font(.headline)
+                .foregroundColor(.white)
+                .padding(.top, 20)
+
+            TextEditor(text: $text)
+                .font(.body)
+                .foregroundColor(.white)
+                .scrollContentBackground(.hidden)
+                .background(Color(hex: "#161b22"))
+                .cornerRadius(12)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color(hex: "#30363d"), lineWidth: 1)
+                )
+                .frame(minHeight: 120)
+                .padding(.horizontal, 16)
+
+            HStack(spacing: 16) {
+                Button(action: onCancel) {
+                    Text("取消")
+                        .fontWeight(.medium)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color(hex: "#30363d"))
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                }
+
+                Button(action: onConfirm) {
+                    Text("发送")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color(hex: "#58a6ff"))
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 20)
+        }
+        .background(Color(hex: "#0d1117"))
     }
 }
