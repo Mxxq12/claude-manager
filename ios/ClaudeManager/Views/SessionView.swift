@@ -2,6 +2,11 @@ import SwiftUI
 import Speech
 import AVFoundation
 
+// Reference type holder so input tap closure can always access the current recognition request
+final class SpeechHolder {
+    var request: SFSpeechAudioBufferRecognitionRequest?
+}
+
 struct SessionView: View {
     let sessionId: String
     @EnvironmentObject var viewModel: AppViewModel
@@ -19,6 +24,15 @@ struct SessionView: View {
     @State private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     @State private var recognitionTask: SFSpeechRecognitionTask?
     @State private var audioEngine = AVAudioEngine()
+    @State private var liveTranscript = ""
+    @State private var accumulatedTranscript = ""  // Finalized parts (across task restarts)
+    @State private var recordingDuration: TimeInterval = 0
+    @State private var recordingTimer: Timer?
+    @State private var audioLevel: CGFloat = 0
+    @State private var dragOffsetY: CGFloat = 0
+    @State private var willCancel = false
+    @State private var lastRecognitionUpdate = Date()
+    @State private var speechHolder = SpeechHolder()
 
     enum InputMode { case keyboard, voice }
 
@@ -85,6 +99,13 @@ struct SessionView: View {
 
                 // Input bar
                 inputBar
+            }
+
+            // Voice recording overlay (WeChat style)
+            if isRecording {
+                voiceRecordingOverlay
+                    .transition(.opacity)
+                    .zIndex(100)
             }
         }
         .preferredColorScheme(.dark)
@@ -173,6 +194,96 @@ struct SessionView: View {
         .padding(.vertical, 4)
         .background(Capsule().fill(.ultraThinMaterial))
         .overlay(Capsule().stroke(Color.white.opacity(0.08), lineWidth: 1))
+    }
+
+    // MARK: - Voice Recording Overlay (WeChat style)
+
+    private var voiceRecordingOverlay: some View {
+        ZStack {
+            // Dim background
+            Color.black.opacity(0.6)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+
+            VStack {
+                Spacer()
+
+                VStack(spacing: 20) {
+                    // Mic icon with audio level pulse
+                    ZStack {
+                        // Outer pulse circles based on audio level
+                        Circle()
+                            .stroke(willCancel ? Color.dsError.opacity(0.3) : Color.dsAccentBlue.opacity(0.3), lineWidth: 2)
+                            .frame(width: 100 + audioLevel * 60, height: 100 + audioLevel * 60)
+                            .animation(.easeOut(duration: 0.15), value: audioLevel)
+                        Circle()
+                            .stroke(willCancel ? Color.dsError.opacity(0.5) : Color.dsAccentBlue.opacity(0.5), lineWidth: 2)
+                            .frame(width: 80 + audioLevel * 30, height: 80 + audioLevel * 30)
+                            .animation(.easeOut(duration: 0.15), value: audioLevel)
+
+                        Circle()
+                            .fill(willCancel
+                                  ? AnyShapeStyle(Color.dsError)
+                                  : AnyShapeStyle(LinearGradient.dsAccentGradient))
+                            .frame(width: 80, height: 80)
+
+                        Image(systemName: willCancel ? "xmark" : "mic.fill")
+                            .font(.system(size: 32, weight: .semibold))
+                            .foregroundColor(.white)
+                    }
+
+                    // Duration
+                    Text(formatDuration(recordingDuration))
+                        .font(.system(size: 28, weight: .bold, design: .monospaced))
+                        .foregroundColor(.white)
+
+                    // Live transcript preview
+                    if !liveTranscript.isEmpty {
+                        ScrollView {
+                            Text(liveTranscript)
+                                .font(.system(size: 14))
+                                .foregroundColor(.white.opacity(0.9))
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 24)
+                        }
+                        .frame(maxHeight: 120)
+                    } else {
+                        Text("正在聆听...")
+                            .font(.system(size: 14))
+                            .foregroundColor(.white.opacity(0.6))
+                    }
+
+                    // Hint
+                    Text(willCancel ? "松开手指，取消发送" : "上滑取消")
+                        .font(.system(size: 12))
+                        .foregroundColor(willCancel ? .dsError : .white.opacity(0.5))
+                        .padding(.top, 8)
+                }
+                .padding(.vertical, 32)
+                .padding(.horizontal, 32)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(Color(red: 0.06, green: 0.08, blue: 0.14))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                )
+                .padding(.horizontal, 24)
+
+                Spacer()
+                Spacer()
+            }
+        }
+    }
+
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds)
+        let m = total / 60
+        let s = total % 60
+        let ms = Int((seconds - Double(total)) * 10)
+        return String(format: "%02d:%02d.%d", m, s, ms)
     }
 
     // MARK: - Approval Banner
@@ -333,36 +444,44 @@ struct SessionView: View {
                 .buttonStyle(DSPressableStyle())
                 .disabled(inputText.isEmpty)
             } else {
-                // Voice input
-                Button(action: {}) {
-                    HStack(spacing: 8) {
-                        Image(systemName: isRecording ? "waveform" : "mic.fill")
-                            .font(.system(size: 13))
-                        Text(isRecording ? "松开结束" : "按住说话")
-                            .font(.system(size: 14, weight: .medium))
-                    }
-                    .foregroundColor(isRecording ? .white : .dsTextSecondary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 36)
-                    .background(
-                        Capsule().fill(isRecording
-                                       ? AnyShapeStyle(LinearGradient.dsAccentGradient)
-                                       : AnyShapeStyle(Color.dsCardHover))
-                    )
-                    .overlay(
-                        Capsule().stroke(isRecording ? Color.clear : Color.dsBorder, lineWidth: 1)
-                    )
+                // Voice input — WeChat style hold-to-talk
+                HStack(spacing: 8) {
+                    Image(systemName: isRecording ? "waveform" : "mic.fill")
+                        .font(.system(size: 13))
+                    Text(isRecording ? (willCancel ? "松开取消" : "松开发送") : "按住说话")
+                        .font(.system(size: 14, weight: .medium))
                 }
-                .simultaneousGesture(
-                    LongPressGesture(minimumDuration: 0.1)
-                        .onEnded { _ in
-                            Haptics.medium()
-                            startRecording()
+                .foregroundColor(isRecording ? .white : .dsTextSecondary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 36)
+                .background(
+                    Capsule().fill(isRecording
+                                   ? (willCancel ? AnyShapeStyle(Color.dsError) : AnyShapeStyle(LinearGradient.dsAccentGradient))
+                                   : AnyShapeStyle(Color.dsCardHover))
+                )
+                .overlay(
+                    Capsule().stroke(isRecording ? Color.clear : Color.dsBorder, lineWidth: 1)
+                )
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            if !isRecording {
+                                Haptics.medium()
+                                startRecording()
+                            }
+                            // Slide up to cancel (50pt threshold)
+                            let shouldCancel = value.translation.height < -50
+                            if shouldCancel != willCancel {
+                                Haptics.light()
+                                willCancel = shouldCancel
+                            }
+                            dragOffsetY = value.translation.height
                         }
-                        .sequenced(before: DragGesture(minimumDistance: 0)
-                            .onEnded { _ in
-                                stopRecordingAndSend()
-                            })
+                        .onEnded { _ in
+                            stopRecordingAndSend()
+                            willCancel = false
+                            dragOffsetY = 0
+                        }
                 )
             }
         }
@@ -407,17 +526,26 @@ struct SessionView: View {
         speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN"))
         guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else { return }
 
-        recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
-        guard let recognitionRequest = recognitionRequest else { return }
-        recognitionRequest.shouldReportPartialResults = true
+        // Reset state
+        liveTranscript = ""
+        accumulatedTranscript = ""
+        recordingDuration = 0
+        audioLevel = 0
+        lastRecognitionUpdate = Date()
 
         let audioSession = AVAudioSession.sharedInstance()
         do {
-            try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
+            try audioSession.setCategory(.playAndRecord, mode: .measurement, options: [.duckOthers, .defaultToSpeaker])
             try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
             print("Audio session setup failed: \(error)")
             return
+        }
+
+        // Reset audio engine
+        if audioEngine.isRunning {
+            audioEngine.stop()
+            audioEngine.inputNode.removeTap(onBus: 0)
         }
 
         let inputNode = audioEngine.inputNode
@@ -428,32 +556,119 @@ struct SessionView: View {
             return
         }
 
+        // IMPORTANT: tap closure references speechHolder (reference type),
+        // so it always appends to the current request, even after task restarts
+        let holder = speechHolder
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
-            recognitionRequest.append(buffer)
+            holder.request?.append(buffer)
+            // Compute audio level for visualization
+            guard let channelData = buffer.floatChannelData?[0] else { return }
+            let frameLength = Int(buffer.frameLength)
+            var sum: Float = 0
+            for i in 0..<frameLength {
+                sum += abs(channelData[i])
+            }
+            let avg = sum / Float(frameLength)
+            DispatchQueue.main.async {
+                audioLevel = CGFloat(min(1.0, avg * 20))
+            }
         }
 
         audioEngine.prepare()
         do {
             try audioEngine.start()
             isRecording = true
+            startRecordingTimer()
         } catch {
             print("Audio engine failed to start: \(error)")
             return
         }
 
-        recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { result, error in
+        // Start the first recognition task
+        startNewRecognitionTask()
+    }
+
+    private func startNewRecognitionTask() {
+        guard let speechRecognizer = speechRecognizer else { return }
+
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        if speechRecognizer.supportsOnDeviceRecognition {
+            request.requiresOnDeviceRecognition = true
+        }
+        if #available(iOS 16.0, *) {
+            request.addsPunctuation = true
+        }
+        recognitionRequest = request
+        speechHolder.request = request
+
+        recognitionTask = speechRecognizer.recognitionTask(with: request) { result, error in
             if let result = result {
-                inputText = result.bestTranscription.formattedString
+                let text = result.bestTranscription.formattedString
+                DispatchQueue.main.async {
+                    // Live transcript = accumulated + current partial
+                    if accumulatedTranscript.isEmpty {
+                        liveTranscript = text
+                    } else {
+                        liveTranscript = accumulatedTranscript + (text.isEmpty ? "" : " " + text)
+                    }
+                    lastRecognitionUpdate = Date()
+
+                    if result.isFinal {
+                        // Accumulate this segment and start a new task
+                        if !text.isEmpty {
+                            if accumulatedTranscript.isEmpty {
+                                accumulatedTranscript = text
+                            } else {
+                                accumulatedTranscript += " " + text
+                            }
+                            liveTranscript = accumulatedTranscript
+                        }
+                        // Restart task to keep listening
+                        if isRecording {
+                            startNewRecognitionTask()
+                        }
+                    }
+                }
             }
-            if error != nil { stopRecording() }
+            if let error = error as NSError? {
+                let code = error.code
+                // 1110 = no speech, 1101 = unavailable — these are fatal
+                // 203 = retry, others are recoverable, restart task
+                if code == 1101 {
+                    DispatchQueue.main.async { stopRecording() }
+                } else if code != 0 {
+                    // Recoverable error — restart task if still recording
+                    DispatchQueue.main.async {
+                        if isRecording {
+                            startNewRecognitionTask()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func startRecordingTimer() {
+        recordingTimer?.invalidate()
+        recordingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+            DispatchQueue.main.async {
+                recordingDuration += 0.1
+            }
         }
     }
 
     private func stopRecordingAndSend() {
+        let cancelled = willCancel
+        // Capture current transcript before stopping (use liveTranscript which includes accumulated + current partial)
+        let finalText = liveTranscript
         stopRecording()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            voicePreviewText = inputText
-            inputText = ""
+        if cancelled { return }
+        // Show preview with the captured text
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            voicePreviewText = finalText
+            liveTranscript = ""
+            accumulatedTranscript = ""
             if !voicePreviewText.isEmpty {
                 showVoicePreview = true
             }
@@ -462,13 +677,20 @@ struct SessionView: View {
 
     private func stopRecording() {
         guard isRecording else { return }
+        // Set isRecording=false FIRST to prevent task auto-restart in callback
+        isRecording = false
+        recordingTimer?.invalidate()
+        recordingTimer = nil
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
+        speechHolder.request = nil
         recognitionRequest?.endAudio()
-        recognitionTask?.cancel()
+        // IMPORTANT: use finish() instead of cancel() — cancel discards results!
+        recognitionTask?.finish()
         recognitionRequest = nil
         recognitionTask = nil
-        isRecording = false
+        audioLevel = 0
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 }
 

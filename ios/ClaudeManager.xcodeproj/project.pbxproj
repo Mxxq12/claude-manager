@@ -7,22 +7,22 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A10001 /* ClaudeManagerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001; };
-		A10002 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10002; };
-		A10003 /* WebSocketMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10003; };
-		A10004 /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10004; };
-		A10005 /* APIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10005; };
-		A10006 /* WebSocketService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10006; };
-		A10007 /* AppViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007; };
-		A10008 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10008; };
-		A10009 /* SessionListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10009; };
-		A10010 /* SessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10010; };
-		A10011 /* SessionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10011; };
-		A10012 /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10012; };
-		A10013 /* NewSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10013; };
-		A10016 /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016; };
-		A10014 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10014; };
-		A10015 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = D10001; };
+		A10001 /* ClaudeManagerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001 /* ClaudeManagerApp.swift */; };
+		A10002 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10002 /* Session.swift */; };
+		A10003 /* WebSocketMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10003 /* WebSocketMessage.swift */; };
+		A10004 /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10004 /* AuthService.swift */; };
+		A10005 /* APIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10005 /* APIService.swift */; };
+		A10006 /* WebSocketService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10006 /* WebSocketService.swift */; };
+		A10007 /* AppViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007 /* AppViewModel.swift */; };
+		A10008 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10008 /* LoginView.swift */; };
+		A10009 /* SessionListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10009 /* SessionListView.swift */; };
+		A10010 /* SessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10010 /* SessionView.swift */; };
+		A10011 /* SessionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10011 /* SessionCard.swift */; };
+		A10012 /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10012 /* TerminalView.swift */; };
+		A10013 /* NewSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10013 /* NewSessionView.swift */; };
+		A10014 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10014 /* Assets.xcassets */; };
+		A10015 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = D10001 /* SwiftTerm */; };
+		A10016 /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016 /* DesignSystem.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -39,9 +39,9 @@
 		B10011 /* SessionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCard.swift; sourceTree = "<group>"; };
 		B10012 /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
 		B10013 /* NewSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewSessionView.swift; sourceTree = "<group>"; };
-		B10016 /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
 		B10014 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B10015 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B10016 /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
 		B10099 /* ClaudeManager.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeManager.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -141,7 +141,7 @@
 /* Begin PBXNativeTarget section */
 		T10001 /* ClaudeManager */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = C10003;
+			buildConfigurationList = C10003 /* Build configuration list for PBXNativeTarget "ClaudeManager" */;
 			buildPhases = (
 				S10001 /* Sources */,
 				F10001 /* Frameworks */,
@@ -153,10 +153,10 @@
 			);
 			name = ClaudeManager;
 			packageProductDependencies = (
-				D10001,
+				D10001 /* SwiftTerm */,
 			);
 			productName = ClaudeManager;
-			productReference = B10099;
+			productReference = B10099 /* ClaudeManager.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -174,7 +174,7 @@
 					};
 				};
 			};
-			buildConfigurationList = C10001;
+			buildConfigurationList = C10001 /* Build configuration list for PBXProject "ClaudeManager" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = "zh-Hans";
 			hasScannedForEncodings = 0;
@@ -184,7 +184,7 @@
 			);
 			mainGroup = G10001;
 			packageReferences = (
-				E10001,
+				E10001 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
 			productRefGroup = G10099 /* Products */;
 			projectDirPath = "";
@@ -266,6 +266,35 @@
 			};
 			name = Debug;
 		};
+		C10D02 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RN9M776K66;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ClaudeManager/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Claude Manager";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jabi.claudemanager;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 		C10R01 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -294,34 +323,6 @@
 			};
 			name = Release;
 		};
-		C10D02 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = ClaudeManager/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Claude Manager";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.jabi.claudemanager;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
 		C10R02 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -329,6 +330,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RN9M776K66;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ClaudeManager/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Claude Manager";
@@ -353,7 +355,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		C10001 /* Build configuration list for PBXProject */ = {
+		C10001 /* Build configuration list for PBXProject "ClaudeManager" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				C10D01 /* Debug */,
@@ -362,7 +364,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		C10003 /* Build configuration list for PBXNativeTarget */ = {
+		C10003 /* Build configuration list for PBXNativeTarget "ClaudeManager" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				C10D02 /* Debug */,
@@ -374,7 +376,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		E10001 /* SwiftTerm */ = {
+		E10001 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
 			requirement = {
@@ -387,7 +389,7 @@
 /* Begin XCSwiftPackageProductDependency section */
 		D10001 /* SwiftTerm */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = E10001;
+			package = E10001 /* XCRemoteSwiftPackageReference "SwiftTerm" */;
 			productName = SwiftTerm;
 		};
 /* End XCSwiftPackageProductDependency section */
