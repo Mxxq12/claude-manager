@@ -20,6 +20,7 @@
 		A10011 /* SessionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10011; };
 		A10012 /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10012; };
 		A10013 /* NewSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10013; };
+		A10016 /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016; };
 		A10014 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10014; };
 		A10015 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = D10001; };
 /* End PBXBuildFile section */
@@ -38,6 +39,7 @@
 		B10011 /* SessionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCard.swift; sourceTree = "<group>"; };
 		B10012 /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
 		B10013 /* NewSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewSessionView.swift; sourceTree = "<group>"; };
+		B10016 /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
 		B10014 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B10015 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B10099 /* ClaudeManager.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeManager.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -121,6 +123,7 @@
 			children = (
 				B10011 /* SessionCard.swift */,
 				B10012 /* TerminalView.swift */,
+				B10016 /* DesignSystem.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -221,6 +224,7 @@
 				A10011 /* SessionCard.swift in Sources */,
 				A10012 /* TerminalView.swift in Sources */,
 				A10013 /* NewSessionView.swift in Sources */,
+				A10016 /* DesignSystem.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

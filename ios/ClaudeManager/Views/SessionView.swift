@@ -12,6 +12,7 @@ struct SessionView: View {
     @State private var voicePreviewText = ""
     @State private var isRecording = false
     @State private var showQuickKeys = true
+    @FocusState private var inputFocused: Bool
 
     // Speech
     @State private var speechRecognizer: SFSpeechRecognizer?
@@ -19,63 +20,117 @@ struct SessionView: View {
     @State private var recognitionTask: SFSpeechRecognitionTask?
     @State private var audioEngine = AVAudioEngine()
 
-    enum InputMode {
-        case keyboard, voice
-    }
+    enum InputMode { case keyboard, voice }
 
-    var session: Session? {
-        viewModel.sessions[sessionId]
-    }
+    var session: Session? { viewModel.sessions[sessionId] }
 
     var body: some View {
         ZStack {
-            Color.bgPrimary.ignoresSafeArea()
+            Color.dsBackground.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Terminal area
-                TerminalUIView(sessionId: sessionId)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Subheader (cwd)
+                if let s = session {
+                    HStack(spacing: 6) {
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.dsTextTertiary)
+                        Text(s.cwd)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.dsTextSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 6)
+                }
+
+                // Terminal area with fade masks
+                ZStack(alignment: .bottomTrailing) {
+                    TerminalUIView(sessionId: sessionId)
+                        .padding(8)
+                        .background(Color.dsBackground)
+                        .overlay(alignment: .top) {
+                            LinearGradient(
+                                colors: [Color.dsBackground, Color.dsBackground.opacity(0)],
+                                startPoint: .top, endPoint: .bottom
+                            )
+                            .frame(height: 12)
+                            .allowsHitTesting(false)
+                        }
+                        .overlay(alignment: .bottom) {
+                            LinearGradient(
+                                colors: [Color.dsBackground.opacity(0), Color.dsBackground],
+                                startPoint: .top, endPoint: .bottom
+                            )
+                            .frame(height: 12)
+                            .allowsHitTesting(false)
+                        }
+
+                    // Floating quick-keys panel (2x2)
+                    if showQuickKeys {
+                        floatingQuickKeys
+                            .padding(.trailing, 14)
+                            .padding(.bottom, 14)
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 // Approval banner
                 if session?.isApproval == true {
                     approvalBanner
-                }
-
-                // Quick action keys
-                if showQuickKeys {
-                    quickKeysBar
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
                 // Input bar
                 inputBar
             }
         }
+        .preferredColorScheme(.dark)
         .navigationTitle(session?.name ?? "会话")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Color.dsBackground, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                VStack(spacing: 1) {
+                    Text(session?.name ?? "会话")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.dsTextPrimary)
+                }
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
-                HStack(spacing: 12) {
-                    // Status
+                HStack(spacing: 10) {
                     if let s = session {
-                        Circle()
-                            .fill(s.statusColor)
-                            .frame(width: 8, height: 8)
+                        statusCapsule(for: s)
                     }
-
-                    // Auto-approve toggle
-                    Button {
-                        viewModel.toggleAutoApprove(sessionId: sessionId)
+                    Menu {
+                        Button {
+                            Haptics.light()
+                            viewModel.toggleAutoApprove(sessionId: sessionId)
+                        } label: {
+                            Label(
+                                viewModel.autoApproveSessions.contains(sessionId) ? "关闭自动审批" : "开启自动审批",
+                                systemImage: viewModel.autoApproveSessions.contains(sessionId) ? "bolt.slash" : "bolt.fill"
+                            )
+                        }
+                        Button {
+                            withAnimation(DSAnim.spring) { showQuickKeys.toggle() }
+                        } label: {
+                            Label(showQuickKeys ? "隐藏快捷键" : "显示快捷键",
+                                  systemImage: showQuickKeys ? "keyboard.chevron.compact.down" : "keyboard")
+                        }
+                        Divider()
+                        Button(role: .destructive) {
+                            viewModel.webSocketService.sendKill(sessionId: sessionId)
+                        } label: {
+                            Label("终止会话", systemImage: "stop.circle")
+                        }
                     } label: {
-                        Image(systemName: viewModel.autoApproveSessions.contains(sessionId) ? "bolt.fill" : "bolt.slash")
-                            .foregroundColor(viewModel.autoApproveSessions.contains(sessionId) ? .cmAccent : .textSecondary)
-                    }
-
-                    // Kill button
-                    Button {
-                        viewModel.webSocketService.sendKill(sessionId: sessionId)
-                    } label: {
-                        Image(systemName: "stop.circle")
-                            .foregroundColor(.red)
+                        Image(systemName: "ellipsis.circle")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundColor(.dsTextSecondary)
                     }
                 }
             }
@@ -103,157 +158,205 @@ struct SessionView: View {
         }
     }
 
+    // MARK: - Status Capsule
+
+    private func statusCapsule(for s: Session) -> some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(s.dsStatusColor)
+                .frame(width: 6, height: 6)
+            Text(s.displayStatus)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.dsTextPrimary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Capsule().fill(.ultraThinMaterial))
+        .overlay(Capsule().stroke(Color.white.opacity(0.08), lineWidth: 1))
+    }
+
     // MARK: - Approval Banner
 
     private var approvalBanner: some View {
-        HStack {
+        HStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundColor(.orange)
-            Text("需要审批操作")
-                .font(.subheadline)
-                .foregroundColor(.white)
-            Spacer()
-            Button("批准") {
-                viewModel.webSocketService.sendApprove(sessionId: sessionId)
-            }
-            .font(.subheadline.bold())
-            .padding(.horizontal, 16)
-            .padding(.vertical, 6)
-            .background(Color.orange)
-            .foregroundColor(.white)
-            .cornerRadius(6)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color.orange.opacity(0.15))
-    }
+                .font(.system(size: 16))
+                .foregroundColor(.dsApproval)
 
-    // MARK: - Quick Keys
-
-    private var quickKeysBar: some View {
-        HStack(spacing: 0) {
-            quickKey(symbol: "arrow.up", label: "Up") {
-                viewModel.webSocketService.sendRawInput(sessionId: sessionId, data: "\u{1b}[A")
-            }
-            quickKey(symbol: "arrow.down", label: "Down") {
-                viewModel.webSocketService.sendRawInput(sessionId: sessionId, data: "\u{1b}[B")
-            }
-            quickKey(symbol: "return", label: "Enter") {
-                viewModel.webSocketService.sendRawInput(sessionId: sessionId, data: "\r")
-            }
-            quickKey(symbol: "xmark.circle", label: "Ctrl+C") {
-                viewModel.webSocketService.sendRawInput(sessionId: sessionId, data: "\u{03}")
-            }
-            quickKey(symbol: "character.cursor.ibeam", label: "Tab") {
-                viewModel.webSocketService.sendRawInput(sessionId: sessionId, data: "\t")
+            VStack(alignment: .leading, spacing: 1) {
+                Text("需要审批")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.dsTextPrimary)
+                Text("Claude 正在等待你的确认")
+                    .font(.system(size: 11))
+                    .foregroundColor(.dsTextSecondary)
             }
 
             Spacer()
 
             Button {
-                showQuickKeys = false
+                Haptics.medium()
+                viewModel.webSocketService.sendApprove(sessionId: sessionId)
             } label: {
-                Image(systemName: "chevron.down")
-                    .font(.caption)
-                    .foregroundColor(.textSecondary)
-                    .padding(8)
+                Text("批准")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 8)
+                    .background(
+                        Capsule().fill(Color.dsApproval)
+                    )
             }
+            .buttonStyle(DSPressableStyle())
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Color.bgCard)
-        .overlay(
-            Rectangle()
-                .frame(height: 1)
-                .foregroundColor(Color.border),
-            alignment: .top
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.dsApproval.opacity(0.12))
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.dsApproval.opacity(0.5), lineWidth: 1)
+        )
+        .padding(.horizontal, 12)
+        .padding(.bottom, 6)
     }
 
-    private func quickKey(symbol: String, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 2) {
-                Image(systemName: symbol)
-                    .font(.system(size: 14))
-                Text(label)
-                    .font(.system(size: 8))
+    // MARK: - Floating Quick Keys (2x2 grid)
+
+    private var floatingQuickKeys: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 6) {
+                quickKey(symbol: "arrow.up") {
+                    viewModel.webSocketService.sendRawInput(sessionId: sessionId, data: "\u{1b}[A")
+                }
+                quickKey(symbol: "arrow.down") {
+                    viewModel.webSocketService.sendRawInput(sessionId: sessionId, data: "\u{1b}[B")
+                }
             }
-            .foregroundColor(.cmAccent)
-            .frame(width: 50, height: 36)
+            HStack(spacing: 6) {
+                quickKey(symbol: "return") {
+                    viewModel.webSocketService.sendRawInput(sessionId: sessionId, data: "\r")
+                }
+                quickKey(symbol: "escape") {
+                    viewModel.webSocketService.sendRawInput(sessionId: sessionId, data: "\u{1b}")
+                }
+            }
         }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(.ultraThinMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.4), radius: 10, x: 0, y: 6)
+    }
+
+    private func quickKey(symbol: String, action: @escaping () -> Void) -> some View {
+        Button {
+            Haptics.light()
+            action()
+        } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(.dsTextPrimary)
+                .frame(width: 40, height: 40)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.dsCardHover.opacity(0.6))
+                )
+        }
+        .buttonStyle(DSPressableStyle(scale: 0.9))
     }
 
     // MARK: - Input Bar
 
     private var inputBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             // Mode toggle
             Button {
+                Haptics.light()
                 inputMode = inputMode == .keyboard ? .voice : .keyboard
-                if inputMode == .keyboard {
-                    stopRecording()
-                }
+                if inputMode == .keyboard { stopRecording() }
             } label: {
-                Image(systemName: inputMode == .keyboard ? "mic" : "keyboard")
-                    .font(.system(size: 18))
-                    .foregroundColor(.cmAccent)
+                Image(systemName: inputMode == .keyboard ? "mic.fill" : "keyboard.fill")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(.dsAccentBlue)
                     .frame(width: 36, height: 36)
+                    .background(
+                        Circle().fill(Color.dsCardHover)
+                    )
             }
-
-            if !showQuickKeys {
-                Button {
-                    showQuickKeys = true
-                } label: {
-                    Image(systemName: "chevron.up")
-                        .font(.system(size: 14))
-                        .foregroundColor(.textSecondary)
-                        .frame(width: 28, height: 36)
-                }
-            }
+            .buttonStyle(DSPressableStyle())
 
             if inputMode == .keyboard {
-                // Text input
-                TextField("输入消息...", text: $inputText)
-                    .textFieldStyle(.plain)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.bgCard)
-                    .cornerRadius(18)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18)
-                            .stroke(Color.border, lineWidth: 1)
-                    )
-                    .foregroundColor(.white)
-                    .submitLabel(.send)
-                    .onSubmit {
-                        sendMessage()
-                    }
+                // Text input capsule
+                HStack(spacing: 8) {
+                    TextField("", text: $inputText, prompt: Text("输入消息...")
+                        .foregroundColor(.dsTextTertiary))
+                        .textFieldStyle(.plain)
+                        .foregroundColor(.dsTextPrimary)
+                        .font(.system(size: 14))
+                        .focused($inputFocused)
+                        .submitLabel(.send)
+                        .onSubmit { sendMessage() }
+                }
+                .padding(.horizontal, 14)
+                .frame(height: 36)
+                .background(
+                    Capsule().fill(Color.dsCardHover)
+                )
+                .overlay(
+                    Capsule().stroke(inputFocused ? Color.dsAccentBlue : Color.dsBorder,
+                                     lineWidth: inputFocused ? 1.5 : 1)
+                )
+                .animation(DSAnim.quickSpring, value: inputFocused)
 
                 // Send button
                 Button(action: sendMessage) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 28))
-                        .foregroundColor(inputText.isEmpty ? .textSecondary : .cmAccent)
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(width: 36, height: 36)
+                        .background(
+                            Circle().fill(
+                                inputText.isEmpty
+                                ? AnyShapeStyle(Color.dsCardHighlight)
+                                : AnyShapeStyle(LinearGradient.dsAccentGradient)
+                            )
+                        )
                 }
+                .buttonStyle(DSPressableStyle())
                 .disabled(inputText.isEmpty)
             } else {
-                // Voice input - hold to speak
+                // Voice input
                 Button(action: {}) {
-                    Text(isRecording ? "松开结束" : "按住说话")
-                        .font(.subheadline)
-                        .foregroundColor(isRecording ? .white : .textSecondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(isRecording ? Color.cmAccent.opacity(0.3) : Color.bgCard)
-                        .cornerRadius(18)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 18)
-                                .stroke(isRecording ? Color.cmAccent : Color.border, lineWidth: 1)
-                        )
+                    HStack(spacing: 8) {
+                        Image(systemName: isRecording ? "waveform" : "mic.fill")
+                            .font(.system(size: 13))
+                        Text(isRecording ? "松开结束" : "按住说话")
+                            .font(.system(size: 14, weight: .medium))
+                    }
+                    .foregroundColor(isRecording ? .white : .dsTextSecondary)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 36)
+                    .background(
+                        Capsule().fill(isRecording
+                                       ? AnyShapeStyle(LinearGradient.dsAccentGradient)
+                                       : AnyShapeStyle(Color.dsCardHover))
+                    )
+                    .overlay(
+                        Capsule().stroke(isRecording ? Color.clear : Color.dsBorder, lineWidth: 1)
+                    )
                 }
                 .simultaneousGesture(
                     LongPressGesture(minimumDuration: 0.1)
                         .onEnded { _ in
+                            Haptics.medium()
                             startRecording()
                         }
                         .sequenced(before: DragGesture(minimumDistance: 0)
@@ -265,11 +368,12 @@ struct SessionView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(Color.bgPrimary)
+        .frame(minHeight: 52)
+        .background(.ultraThinMaterial)
         .overlay(
             Rectangle()
-                .frame(height: 1)
-                .foregroundColor(Color.border),
+                .frame(height: 0.5)
+                .foregroundColor(Color.dsBorder),
             alignment: .top
         )
     }
@@ -279,6 +383,7 @@ struct SessionView: View {
     private func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        Haptics.light()
         viewModel.webSocketService.sendInput(sessionId: sessionId, text: text)
         inputText = ""
     }
@@ -294,10 +399,7 @@ struct SessionView: View {
 
         AVAudioSession.sharedInstance().requestRecordPermission { granted in
             guard granted else { return }
-
-            DispatchQueue.main.async {
-                self.performRecording()
-            }
+            DispatchQueue.main.async { self.performRecording() }
         }
     }
 
@@ -309,7 +411,6 @@ struct SessionView: View {
         guard let recognitionRequest = recognitionRequest else { return }
         recognitionRequest.shouldReportPartialResults = true
 
-        // Configure audio session before accessing inputNode
         let audioSession = AVAudioSession.sharedInstance()
         do {
             try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
@@ -344,15 +445,12 @@ struct SessionView: View {
             if let result = result {
                 inputText = result.bestTranscription.formattedString
             }
-            if error != nil {
-                stopRecording()
-            }
+            if error != nil { stopRecording() }
         }
     }
 
     private func stopRecordingAndSend() {
         stopRecording()
-        // Show preview dialog for user to review/edit/confirm
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             voicePreviewText = inputText
             inputText = ""
@@ -382,49 +480,72 @@ struct VoicePreviewSheet: View {
     let onCancel: () -> Void
 
     var body: some View {
-        VStack(spacing: 16) {
-            Text("语音识别结果")
-                .font(.headline)
-                .foregroundColor(.white)
-                .padding(.top, 20)
+        ZStack {
+            Color.dsBackground.ignoresSafeArea()
 
-            TextEditor(text: $text)
-                .font(.body)
-                .foregroundColor(.white)
-                .scrollContentBackground(.hidden)
-                .background(Color(hex: "#161b22"))
-                .cornerRadius(12)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color(hex: "#30363d"), lineWidth: 1)
-                )
-                .frame(minHeight: 120)
+            VStack(spacing: 18) {
+                // Grabber
+                Capsule()
+                    .fill(Color.dsBorder)
+                    .frame(width: 36, height: 5)
+                    .padding(.top, 8)
+
+                HStack(spacing: 8) {
+                    Image(systemName: "waveform")
+                        .foregroundStyle(LinearGradient.dsAccentGradient)
+                    Text("语音识别结果")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(.dsTextPrimary)
+                }
+
+                TextEditor(text: $text)
+                    .font(.system(size: 15))
+                    .foregroundColor(.dsTextPrimary)
+                    .scrollContentBackground(.hidden)
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color.dsCard)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(Color.dsBorder, lineWidth: 1)
+                    )
+                    .frame(minHeight: 120)
+                    .padding(.horizontal, 16)
+
+                HStack(spacing: 12) {
+                    Button(action: { Haptics.light(); onCancel() }) {
+                        Text("取消")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.dsTextPrimary)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(Color.dsCardHover)
+                            )
+                    }
+                    .buttonStyle(DSPressableStyle())
+
+                    Button(action: { Haptics.medium(); onConfirm() }) {
+                        Text("发送")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(LinearGradient.dsAccentGradient)
+                            )
+                    }
+                    .buttonStyle(DSPressableStyle())
+                }
                 .padding(.horizontal, 16)
+                .padding(.bottom, 16)
 
-            HStack(spacing: 16) {
-                Button(action: onCancel) {
-                    Text("取消")
-                        .fontWeight(.medium)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Color(hex: "#30363d"))
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-                }
-
-                Button(action: onConfirm) {
-                    Text("发送")
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Color(hex: "#58a6ff"))
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-                }
+                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 20)
         }
-        .background(Color(hex: "#0d1117"))
     }
 }
