@@ -1,5 +1,15 @@
 # 更新日志
 
+## [2.1.0] - 2026-04-08
+
+### iOS 语音输入重构 + 侧边栏拖拽修复
+
+- iOS 语音输入改为「先录制后识别」：用 `AVAudioRecorder` 录到本地 m4a，停止后用 `SFSpeechURLRecognitionRequest` 一次性转写，彻底解决长语音中途清空/中断问题
+- 语音录制改为微信式全屏浮层：麦克风图标 + 音频波形脉冲 + 时长计时 + 上滑取消
+- 语音转文字预览页重做：19pt 大字体、行距 6、自动纠错、字符计数、清空按钮、自动聚焦、large detent、顶部取消/标题/发送条
+- 识别中加 loading 浮层提示
+- 侧边栏拖拽 overlay 卡死修复：拖文件离开窗口或落在终端区域时，sidebar 收不到 dragLeave/drop，counter 永远归不了零，overlay 永久残留。改为在 window 级别监听 `dragend`/`drop`/`mouseleave` 做兜底清理
+
 ## [2.0.0] - 2026-04-03
 
 ### Web 远程控制 + iOS 原生客户端

@@ -2,11 +2,6 @@ import SwiftUI
 import Speech
 import AVFoundation
 
-// Reference type holder so input tap closure can always access the current recognition request
-final class SpeechHolder {
-    var request: SFSpeechAudioBufferRecognitionRequest?
-}
-
 struct SessionView: View {
     let sessionId: String
     @EnvironmentObject var viewModel: AppViewModel
@@ -19,20 +14,16 @@ struct SessionView: View {
     @State private var showQuickKeys = true
     @FocusState private var inputFocused: Bool
 
-    // Speech
+    // Speech / Recording
     @State private var speechRecognizer: SFSpeechRecognizer?
-    @State private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-    @State private var recognitionTask: SFSpeechRecognitionTask?
-    @State private var audioEngine = AVAudioEngine()
-    @State private var liveTranscript = ""
-    @State private var accumulatedTranscript = ""  // Finalized parts (across task restarts)
+    @State private var audioRecorder: AVAudioRecorder?
+    @State private var recordingURL: URL?
     @State private var recordingDuration: TimeInterval = 0
     @State private var recordingTimer: Timer?
     @State private var audioLevel: CGFloat = 0
     @State private var dragOffsetY: CGFloat = 0
     @State private var willCancel = false
-    @State private var lastRecognitionUpdate = Date()
-    @State private var speechHolder = SpeechHolder()
+    @State private var isTranscribing = false
 
     enum InputMode { case keyboard, voice }
 
@@ -107,6 +98,32 @@ struct SessionView: View {
                     .transition(.opacity)
                     .zIndex(100)
             }
+
+            // Transcribing loading overlay
+            if isTranscribing {
+                ZStack {
+                    Color.black.opacity(0.5).ignoresSafeArea()
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .dsAccentBlue))
+                            .scaleEffect(1.5)
+                        Text("识别中...")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white)
+                    }
+                    .padding(32)
+                    .background(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .fill(Color(red: 0.06, green: 0.08, blue: 0.14))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                    )
+                }
+                .transition(.opacity)
+                .zIndex(101)
+            }
         }
         .preferredColorScheme(.dark)
         .navigationTitle(session?.name ?? "会话")
@@ -175,7 +192,8 @@ struct SessionView: View {
                     voicePreviewText = ""
                 }
             )
-            .presentationDetents([.medium])
+            .presentationDetents([.large])
+            .presentationDragIndicator(.hidden)
         }
     }
 
@@ -237,21 +255,9 @@ struct SessionView: View {
                         .font(.system(size: 28, weight: .bold, design: .monospaced))
                         .foregroundColor(.white)
 
-                    // Live transcript preview
-                    if !liveTranscript.isEmpty {
-                        ScrollView {
-                            Text(liveTranscript)
-                                .font(.system(size: 14))
-                                .foregroundColor(.white.opacity(0.9))
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 24)
-                        }
-                        .frame(maxHeight: 120)
-                    } else {
-                        Text("正在聆听...")
-                            .font(.system(size: 14))
-                            .foregroundColor(.white.opacity(0.6))
-                    }
+                    Text("正在录音...")
+                        .font(.system(size: 14))
+                        .foregroundColor(.white.opacity(0.6))
 
                     // Hint
                     Text(willCancel ? "松开手指，取消发送" : "上滑取消")
@@ -512,9 +518,7 @@ struct SessionView: View {
     private func startRecording() {
         guard !isRecording else { return }
 
-        SFSpeechRecognizer.requestAuthorization { status in
-            guard status == .authorized else { return }
-        }
+        SFSpeechRecognizer.requestAuthorization { _ in }
 
         AVAudioSession.sharedInstance().requestRecordPermission { granted in
             guard granted else { return }
@@ -522,130 +526,44 @@ struct SessionView: View {
         }
     }
 
-    private func performRecording() {
-        speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN"))
-        guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else { return }
+    // MARK: - Recording (record-then-transcribe mode, like WeChat)
 
+    private func performRecording() {
         // Reset state
-        liveTranscript = ""
-        accumulatedTranscript = ""
         recordingDuration = 0
         audioLevel = 0
-        lastRecognitionUpdate = Date()
 
         let audioSession = AVAudioSession.sharedInstance()
         do {
-            try audioSession.setCategory(.playAndRecord, mode: .measurement, options: [.duckOthers, .defaultToSpeaker])
+            try audioSession.setCategory(.playAndRecord, mode: .default, options: [.duckOthers, .defaultToSpeaker])
             try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
-            print("Audio session setup failed: \(error)")
+            print("Audio session failed: \(error)")
             return
         }
 
-        // Reset audio engine
-        if audioEngine.isRunning {
-            audioEngine.stop()
-            audioEngine.inputNode.removeTap(onBus: 0)
-        }
+        // Create recording file
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voice-\(UUID().uuidString).m4a")
+        recordingURL = url
 
-        let inputNode = audioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        let settings: [String: Any] = [
+            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+            AVSampleRateKey: 16000,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
+        ]
 
-        guard recordingFormat.sampleRate > 0 && recordingFormat.channelCount > 0 else {
-            print("Invalid audio format: \(recordingFormat)")
-            return
-        }
-
-        // IMPORTANT: tap closure references speechHolder (reference type),
-        // so it always appends to the current request, even after task restarts
-        let holder = speechHolder
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
-            holder.request?.append(buffer)
-            // Compute audio level for visualization
-            guard let channelData = buffer.floatChannelData?[0] else { return }
-            let frameLength = Int(buffer.frameLength)
-            var sum: Float = 0
-            for i in 0..<frameLength {
-                sum += abs(channelData[i])
-            }
-            let avg = sum / Float(frameLength)
-            DispatchQueue.main.async {
-                audioLevel = CGFloat(min(1.0, avg * 20))
-            }
-        }
-
-        audioEngine.prepare()
         do {
-            try audioEngine.start()
+            let recorder = try AVAudioRecorder(url: url, settings: settings)
+            recorder.isMeteringEnabled = true
+            recorder.prepareToRecord()
+            recorder.record()
+            audioRecorder = recorder
             isRecording = true
             startRecordingTimer()
         } catch {
-            print("Audio engine failed to start: \(error)")
-            return
-        }
-
-        // Start the first recognition task
-        startNewRecognitionTask()
-    }
-
-    private func startNewRecognitionTask() {
-        guard let speechRecognizer = speechRecognizer else { return }
-
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        if speechRecognizer.supportsOnDeviceRecognition {
-            request.requiresOnDeviceRecognition = true
-        }
-        if #available(iOS 16.0, *) {
-            request.addsPunctuation = true
-        }
-        recognitionRequest = request
-        speechHolder.request = request
-
-        recognitionTask = speechRecognizer.recognitionTask(with: request) { result, error in
-            if let result = result {
-                let text = result.bestTranscription.formattedString
-                DispatchQueue.main.async {
-                    // Live transcript = accumulated + current partial
-                    if accumulatedTranscript.isEmpty {
-                        liveTranscript = text
-                    } else {
-                        liveTranscript = accumulatedTranscript + (text.isEmpty ? "" : " " + text)
-                    }
-                    lastRecognitionUpdate = Date()
-
-                    if result.isFinal {
-                        // Accumulate this segment and start a new task
-                        if !text.isEmpty {
-                            if accumulatedTranscript.isEmpty {
-                                accumulatedTranscript = text
-                            } else {
-                                accumulatedTranscript += " " + text
-                            }
-                            liveTranscript = accumulatedTranscript
-                        }
-                        // Restart task to keep listening
-                        if isRecording {
-                            startNewRecognitionTask()
-                        }
-                    }
-                }
-            }
-            if let error = error as NSError? {
-                let code = error.code
-                // 1110 = no speech, 1101 = unavailable — these are fatal
-                // 203 = retry, others are recoverable, restart task
-                if code == 1101 {
-                    DispatchQueue.main.async { stopRecording() }
-                } else if code != 0 {
-                    // Recoverable error — restart task if still recording
-                    DispatchQueue.main.async {
-                        if isRecording {
-                            startNewRecognitionTask()
-                        }
-                    }
-                }
-            }
+            print("AVAudioRecorder failed: \(error)")
         }
     }
 
@@ -654,41 +572,94 @@ struct SessionView: View {
         recordingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
             DispatchQueue.main.async {
                 recordingDuration += 0.1
+                // Update audio level
+                audioRecorder?.updateMeters()
+                if let power = audioRecorder?.averagePower(forChannel: 0) {
+                    // power is in dB, range -160 to 0
+                    let normalized = max(0, (power + 50) / 50)  // map -50..0 to 0..1
+                    audioLevel = CGFloat(min(1.0, normalized))
+                }
             }
         }
     }
 
     private func stopRecordingAndSend() {
         let cancelled = willCancel
-        // Capture current transcript before stopping (use liveTranscript which includes accumulated + current partial)
-        let finalText = liveTranscript
-        stopRecording()
-        if cancelled { return }
-        // Show preview with the captured text
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            voicePreviewText = finalText
-            liveTranscript = ""
-            accumulatedTranscript = ""
-            if !voicePreviewText.isEmpty {
-                showVoicePreview = true
+        guard isRecording else { return }
+
+        // Stop recording
+        recordingTimer?.invalidate()
+        recordingTimer = nil
+        audioRecorder?.stop()
+        let url = recordingURL
+        let duration = recordingDuration
+        audioRecorder = nil
+        isRecording = false
+        audioLevel = 0
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+
+        if cancelled {
+            // Delete file if cancelled
+            if let url = url { try? FileManager.default.removeItem(at: url) }
+            return
+        }
+
+        // Too short
+        if duration < 0.5 {
+            if let url = url { try? FileManager.default.removeItem(at: url) }
+            return
+        }
+
+        // Transcribe the recorded file (no time limit, no interruptions)
+        guard let url = url else { return }
+        transcribeFile(url: url)
+    }
+
+    private func transcribeFile(url: URL) {
+        speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN"))
+        guard let recognizer = speechRecognizer, recognizer.isAvailable else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+
+        isTranscribing = true
+
+        let request = SFSpeechURLRecognitionRequest(url: url)
+        request.shouldReportPartialResults = false
+        if #available(iOS 16.0, *) {
+            request.addsPunctuation = true
+        }
+
+        recognizer.recognitionTask(with: request) { result, error in
+            if let result = result, result.isFinal {
+                let text = result.bestTranscription.formattedString
+                DispatchQueue.main.async {
+                    isTranscribing = false
+                    voicePreviewText = text
+                    if !text.isEmpty {
+                        showVoicePreview = true
+                    }
+                    try? FileManager.default.removeItem(at: url)
+                }
+            } else if error != nil {
+                DispatchQueue.main.async {
+                    isTranscribing = false
+                    try? FileManager.default.removeItem(at: url)
+                }
             }
         }
     }
 
     private func stopRecording() {
         guard isRecording else { return }
-        // Set isRecording=false FIRST to prevent task auto-restart in callback
-        isRecording = false
         recordingTimer?.invalidate()
         recordingTimer = nil
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
-        speechHolder.request = nil
-        recognitionRequest?.endAudio()
-        // IMPORTANT: use finish() instead of cancel() — cancel discards results!
-        recognitionTask?.finish()
-        recognitionRequest = nil
-        recognitionTask = nil
+        audioRecorder?.stop()
+        if let url = recordingURL {
+            try? FileManager.default.removeItem(at: url)
+        }
+        audioRecorder = nil
+        isRecording = false
         audioLevel = 0
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
@@ -701,72 +672,107 @@ struct VoicePreviewSheet: View {
     let onConfirm: () -> Void
     let onCancel: () -> Void
 
+    @FocusState private var isFocused: Bool
+    @State private var characterCount = 0
+
     var body: some View {
         ZStack {
             Color.dsBackground.ignoresSafeArea()
 
-            VStack(spacing: 18) {
-                // Grabber
-                Capsule()
-                    .fill(Color.dsBorder)
-                    .frame(width: 36, height: 5)
-                    .padding(.top, 8)
-
-                HStack(spacing: 8) {
-                    Image(systemName: "waveform")
-                        .foregroundStyle(LinearGradient.dsAccentGradient)
-                    Text("语音识别结果")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(.dsTextPrimary)
-                }
-
-                TextEditor(text: $text)
-                    .font(.system(size: 15))
-                    .foregroundColor(.dsTextPrimary)
-                    .scrollContentBackground(.hidden)
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color.dsCard)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.dsBorder, lineWidth: 1)
-                    )
-                    .frame(minHeight: 120)
-                    .padding(.horizontal, 16)
-
-                HStack(spacing: 12) {
+            VStack(spacing: 0) {
+                // Header
+                HStack {
                     Button(action: { Haptics.light(); onCancel() }) {
                         Text("取消")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.dsTextPrimary)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill(Color.dsCardHover)
-                            )
+                            .font(.system(size: 16))
+                            .foregroundColor(.dsTextSecondary)
                     }
-                    .buttonStyle(DSPressableStyle())
-
+                    Spacer()
+                    HStack(spacing: 6) {
+                        Image(systemName: "waveform")
+                            .font(.system(size: 13))
+                            .foregroundStyle(LinearGradient.dsAccentGradient)
+                        Text("识别结果")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.dsTextPrimary)
+                    }
+                    Spacer()
                     Button(action: { Haptics.medium(); onConfirm() }) {
                         Text("发送")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill(LinearGradient.dsAccentGradient)
-                            )
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .dsTextTertiary : .dsAccentBlue)
                     }
-                    .buttonStyle(DSPressableStyle())
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 16)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+                .background(
+                    Color.dsBackground
+                        .overlay(alignment: .bottom) {
+                            Rectangle().fill(Color.dsBorder).frame(height: 0.5)
+                        }
+                )
 
-                Spacer(minLength: 0)
+                // Text editor — large, native, with autocorrect
+                TextEditor(text: $text)
+                    .focused($isFocused)
+                    .font(.system(size: 19))
+                    .lineSpacing(6)
+                    .foregroundColor(.dsTextPrimary)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.dsBackground)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
+                    .autocorrectionDisabled(false)
+                    .textInputAutocapitalization(.sentences)
+                    .onChange(of: text) { newValue in
+                        characterCount = newValue.count
+                    }
+
+                // Bottom toolbar
+                HStack(spacing: 16) {
+                    // Character count
+                    Text("\(characterCount) 字")
+                        .font(.system(size: 12))
+                        .foregroundColor(.dsTextTertiary)
+
+                    Spacer()
+
+                    // Clear all
+                    if !text.isEmpty {
+                        Button(action: {
+                            Haptics.light()
+                            text = ""
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 12))
+                                Text("清空")
+                                    .font(.system(size: 13))
+                            }
+                            .foregroundColor(.dsTextSecondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(Capsule().fill(Color.dsCardHover))
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(
+                    Color.dsBackground
+                        .overlay(alignment: .top) {
+                            Rectangle().fill(Color.dsBorder).frame(height: 0.5)
+                        }
+                )
+            }
+        }
+        .preferredColorScheme(.dark)
+        .onAppear {
+            characterCount = text.count
+            // Auto-focus and place cursor at end
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                isFocused = true
             }
         }
     }

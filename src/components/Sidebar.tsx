@@ -47,6 +47,22 @@ export function Sidebar({ splitView, onToggleSplit, currentTheme, onThemeChange 
   const dragCleanupRef = useRef<(() => void) | null>(null);
   const [autoApprove, setAutoApprove] = useState(false);
 
+  // Global drag cleanup — cleans up overlay when drag ends anywhere on the window
+  useEffect(() => {
+    const cleanup = () => {
+      dragCounter.current = 0;
+      setDragOver(false);
+    };
+    window.addEventListener('dragend', cleanup);
+    window.addEventListener('drop', cleanup);
+    window.addEventListener('mouseleave', cleanup);
+    return () => {
+      window.removeEventListener('dragend', cleanup);
+      window.removeEventListener('drop', cleanup);
+      window.removeEventListener('mouseleave', cleanup);
+    };
+  }, []);
+
   const handleToggleManaged = async (sessionId: string) => {
     if (managedSessions.has(sessionId)) {
       window.electronAPI.stopManaged(sessionId);
