@@ -6,3 +6,7 @@ release/
 .managed/
 web-dist/
 *.buf
+
+# Xcode 用户态文件
+xcuserdata/
+*.xcuserstate
