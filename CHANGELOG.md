@@ -2,6 +2,14 @@
 
 ## [2.1.0] - 2026-04-08
 
+### 终端渲染修复 + iOS 体验大改
+
+- 终端渲染：`WebglAddon` 换成 `CanvasAddon`。WebGL 字形纹理图集（glyph atlas）在长会话 + CJK 大量字形场景下会用尽，导致中文叠影/红字残留；Canvas renderer 用浏览器原生字体回退，无 atlas 上限，长会话稳定。bundle 顺带瘦身约 60kB
+- 终端 PTY 数据流过滤：剥掉 xterm.js v5 解析器会出 bug 的几类 CSI 序列（kitty 键盘协议 `\x1b[<u`/`\x1b[>1u`、xterm modify-keys `\x1b[>4;2m`、同步输出 `\x1b[?2026h/l`）。Claude CLI 在用量 90%+ 时会高频用这些序列重绘 footer，触发解析器异常状态把后续 CSI 全当字面文字渲染（满屏 `[27m` `[5A`）
+- iOS 进入会话页禁用屏幕自动锁屏（`UIApplication.isIdleTimerDisabled = true`），离开恢复，避免看 Claude 输出时屏幕息屏
+- iOS 语音输入改为「混合方案」：流式实时识别 + 文件兜底。`AVAudioEngine` 单音源双消费，tap 同时喂给 `SFSpeechAudioBufferRecognitionRequest` 和 `AVAudioFile`。停顿/60s 触发的 `isFinal` 通过累计 + 实时两层文本无缝续接，长语音不中断；流式失败时回退到录到的 caf 文件二次识别。录音浮层加实时字幕显示
+- iOS 语音预览改为「微信式内联面板」：删除全屏 sheet 模态，识别结果直接在输入栏位置内联编辑，三个按钮（取消/重录/发送），上下文不丢，操作步数从 6 步降到 1-2 步
+
 ### iOS 语音输入重构 + 侧边栏拖拽修复
 
 - iOS 语音输入改为「先录制后识别」：用 `AVAudioRecorder` 录到本地 m4a，停止后用 `SFSpeechURLRecognitionRequest` 一次性转写，彻底解决长语音中途清空/中断问题

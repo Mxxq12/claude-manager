@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import { WebglAddon } from '@xterm/addon-webgl';
+import { CanvasAddon } from '@xterm/addon-canvas';
 import { SearchAddon } from '@xterm/addon-search';
 import { loadSavedTheme } from '../themes';
 import type { Theme } from '../themes';
@@ -63,13 +63,15 @@ function createTerminal(sessionId: string, theme: Theme): CachedTerminal {
   }));
   xterm.open(element);
 
-  // Enable GPU-accelerated rendering, fallback to canvas if WebGL unavailable
+  // Use Canvas renderer (instead of WebGL).
+  // 原因：WebGL renderer 把字形烘焙到 GPU 纹理图集（glyph atlas），CJK 字符多 + 长时间运行
+  // 时图集页会用尽，新字形覆盖到错位置，导致中文叠影/红字残留。
+  // Canvas renderer 用浏览器原生字体回退，不存在 atlas 上限问题，长会话也稳。
+  // 速度上略慢于 WebGL，但对终端这种文本场景完全可以接受。
   try {
-    const webglAddon = new WebglAddon();
-    webglAddon.onContextLoss(() => { webglAddon.dispose(); });
-    xterm.loadAddon(webglAddon);
+    xterm.loadAddon(new CanvasAddon());
   } catch {
-    // WebGL not available, use default canvas renderer
+    // Canvas not available, fall back to default DOM renderer
   }
 
   // Register path link provider

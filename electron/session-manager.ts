@@ -485,7 +485,17 @@ export class SessionManager extends EventEmitter {
     const cwdHash = cwd.replace(/\//g, '-').replace(/^-/, '');
     const bufferCacheFile = require('path').join(BUFFER_CACHE_DIR, `${cwdHash}.buf`);
 
-    ptyProcess.onData((data: string) => {
+    ptyProcess.onData((rawData: string) => {
+      // 剥掉 xterm.js v5 解析器会出 bug 的几类 CSI 序列：
+      // 1. `\x1b[<u`、`\x1b[>1u` — kitty 键盘协议（xterm 不支持，剥掉无副作用）
+      // 2. `\x1b[>4;2m` — xterm modify-keys 扩展
+      // 3. `\x1b[?2026h`、`\x1b[?2026l` — 同步输出模式（atomic refresh hint），
+      //    Claude CLI 在用量 90%+ 时高频切换它，xterm.js v5 处理不过来，
+      //    会进入异常状态把后续 CSI 当字面文字渲染（[27m、[5A 满屏）。
+      //    剥掉只是失去原子刷新优化，渲染本身正常。
+      const data = rawData
+        .replace(/\x1b\[[<>][0-9;]*[a-zA-Z]/g, '')
+        .replace(/\x1b\[\?2026[hl]/g, '');
       const bytes = new TextEncoder().encode(data);
       session.outputBuffer.push(bytes);
       session.bufferSize += bytes.length;

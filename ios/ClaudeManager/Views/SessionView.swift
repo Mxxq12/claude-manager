@@ -2,21 +2,33 @@ import SwiftUI
 import Speech
 import AVFoundation
 
+// Reference holder so the audio tap closure (real-time audio thread) can
+// always access the current recognition request after restarts
+final class StreamingHolder {
+    var request: SFSpeechAudioBufferRecognitionRequest?
+    var hadFatalError: Bool = false
+}
+
 struct SessionView: View {
     let sessionId: String
     @EnvironmentObject var viewModel: AppViewModel
 
     @State private var inputText = ""
     @State private var inputMode: InputMode = .keyboard
-    @State private var showVoicePreview = false
     @State private var voicePreviewText = ""
+    @State private var voicePreviewFocused: Bool = false
     @State private var isRecording = false
     @State private var showQuickKeys = true
     @FocusState private var inputFocused: Bool
 
-    // Speech / Recording
+    // Speech / Recording (hybrid: live streaming + file backup)
     @State private var speechRecognizer: SFSpeechRecognizer?
-    @State private var audioRecorder: AVAudioRecorder?
+    @State private var audioEngine: AVAudioEngine?
+    @State private var audioFile: AVAudioFile?
+    @State private var recognitionTask: SFSpeechRecognitionTask?
+    @State private var streamingHolder = StreamingHolder()
+    @State private var accumulatedText: String = ""    // 已经"定稿"的部分（跨多个识别 task 累加）
+    @State private var partialText: String = ""        // 当前识别 task 的中间结果
     @State private var recordingURL: URL?
     @State private var recordingDuration: TimeInterval = 0
     @State private var recordingTimer: Timer?
@@ -88,9 +100,16 @@ struct SessionView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
-                // Input bar
-                inputBar
+                // Input bar (or voice preview pane when there's recognized text)
+                if voicePreviewText.isEmpty {
+                    inputBar
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else {
+                    voicePreviewPane
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
+            .animation(DSAnim.spring, value: voicePreviewText.isEmpty)
 
             // Voice recording overlay (WeChat style)
             if isRecording {
@@ -173,27 +192,15 @@ struct SessionView: View {
                 }
             }
         }
+        .onAppear {
+            // 进入会话后禁用自动锁屏，避免看 Claude 输出时屏幕息屏
+            UIApplication.shared.isIdleTimerDisabled = true
+        }
         .onDisappear {
             viewModel.webSocketService.removeOutputListeners(sessionId: sessionId)
             stopRecording()
-        }
-        .sheet(isPresented: $showVoicePreview) {
-            VoicePreviewSheet(
-                text: $voicePreviewText,
-                onConfirm: {
-                    if !voicePreviewText.isEmpty {
-                        viewModel.webSocketService.sendInput(sessionId: sessionId, text: voicePreviewText)
-                    }
-                    showVoicePreview = false
-                    voicePreviewText = ""
-                },
-                onCancel: {
-                    showVoicePreview = false
-                    voicePreviewText = ""
-                }
-            )
-            .presentationDetents([.large])
-            .presentationDragIndicator(.hidden)
+            // 离开会话恢复系统默认息屏行为，省电
+            UIApplication.shared.isIdleTimerDisabled = false
         }
     }
 
@@ -255,9 +262,24 @@ struct SessionView: View {
                         .font(.system(size: 28, weight: .bold, design: .monospaced))
                         .foregroundColor(.white)
 
-                    Text("正在录音...")
-                        .font(.system(size: 14))
-                        .foregroundColor(.white.opacity(0.6))
+                    // Live transcription
+                    let liveText = (accumulatedText + (accumulatedText.isEmpty ? "" : " ") + partialText)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if liveText.isEmpty {
+                        Text("正在录音...")
+                            .font(.system(size: 14))
+                            .foregroundColor(.white.opacity(0.6))
+                    } else {
+                        ScrollView {
+                            Text(liveText)
+                                .font(.system(size: 16))
+                                .foregroundColor(.white)
+                                .lineSpacing(4)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .frame(maxHeight: 120)
+                    }
 
                     // Hint
                     Text(willCancel ? "松开手指，取消发送" : "上滑取消")
@@ -390,6 +412,131 @@ struct SessionView: View {
         .buttonStyle(DSPressableStyle(scale: 0.9))
     }
 
+    // MARK: - Voice Preview Pane (微信式：识别结果在输入栏位置内联编辑)
+
+    private var voicePreviewPane: some View {
+        VStack(spacing: 0) {
+            // Header bar: 标识 + 字数
+            HStack(spacing: 6) {
+                Image(systemName: "waveform")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(LinearGradient.dsAccentGradient)
+                Text("识别结果")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.dsTextSecondary)
+                Spacer()
+                Text("\(voicePreviewText.count) 字")
+                    .font(.system(size: 11))
+                    .foregroundColor(.dsTextTertiary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
+
+            // Editable text — 自适应高度，最多 6 行
+            TextEditorWithFocus(
+                text: $voicePreviewText,
+                isFocused: $voicePreviewFocused
+            )
+            .frame(minHeight: 44, maxHeight: 168)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.dsCardHover)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(voicePreviewFocused ? Color.dsAccentBlue : Color.dsBorder,
+                            lineWidth: voicePreviewFocused ? 1.5 : 1)
+            )
+            .padding(.horizontal, 12)
+
+            // Action row: 取消 / 重录 / 发送
+            HStack(spacing: 10) {
+                // 取消
+                Button {
+                    Haptics.light()
+                    voicePreviewText = ""
+                    voicePreviewFocused = false
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("取消")
+                            .font(.system(size: 13, weight: .medium))
+                    }
+                    .foregroundColor(.dsTextSecondary)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 36)
+                    .background(Capsule().fill(Color.dsCardHover))
+                }
+                .buttonStyle(DSPressableStyle())
+
+                // 重录
+                Button {
+                    Haptics.medium()
+                    voicePreviewText = ""
+                    voicePreviewFocused = false
+                    // 自动确保切到语音模式 + 提示
+                    if inputMode != .voice {
+                        inputMode = .voice
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("重录")
+                            .font(.system(size: 13, weight: .medium))
+                    }
+                    .foregroundColor(.dsTextPrimary)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 36)
+                    .background(Capsule().fill(Color.dsCardHighlight))
+                }
+                .buttonStyle(DSPressableStyle())
+
+                // 发送
+                Button {
+                    Haptics.medium()
+                    let text = voicePreviewText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !text.isEmpty else { return }
+                    viewModel.webSocketService.sendInput(sessionId: sessionId, text: text)
+                    voicePreviewText = ""
+                    voicePreviewFocused = false
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "paperplane.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("发送")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 36)
+                    .background(
+                        Capsule().fill(
+                            voicePreviewText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            ? AnyShapeStyle(Color.dsCardHighlight)
+                            : AnyShapeStyle(LinearGradient.dsAccentGradient)
+                        )
+                    )
+                }
+                .buttonStyle(DSPressableStyle())
+                .disabled(voicePreviewText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+        }
+        .background(.ultraThinMaterial)
+        .overlay(
+            Rectangle()
+                .frame(height: 0.5)
+                .foregroundColor(Color.dsBorder),
+            alignment: .top
+        )
+    }
+
     // MARK: - Input Bar
 
     private var inputBar: some View {
@@ -513,58 +660,161 @@ struct SessionView: View {
         inputText = ""
     }
 
-    // MARK: - Speech Recognition
+    // MARK: - Speech Recognition (混合方案：流式实时识别 + 文件兜底)
 
     private func startRecording() {
         guard !isRecording else { return }
-
         SFSpeechRecognizer.requestAuthorization { _ in }
-
         AVAudioSession.sharedInstance().requestRecordPermission { granted in
             guard granted else { return }
             DispatchQueue.main.async { self.performRecording() }
         }
     }
 
-    // MARK: - Recording (record-then-transcribe mode, like WeChat)
-
     private func performRecording() {
         // Reset state
+        accumulatedText = ""
+        partialText = ""
         recordingDuration = 0
         audioLevel = 0
+        streamingHolder = StreamingHolder()
 
+        // Audio session
         let audioSession = AVAudioSession.sharedInstance()
         do {
-            try audioSession.setCategory(.playAndRecord, mode: .default, options: [.duckOthers, .defaultToSpeaker])
+            try audioSession.setCategory(.playAndRecord, mode: .measurement, options: [.duckOthers, .defaultToSpeaker])
             try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
             print("Audio session failed: \(error)")
             return
         }
 
-        // Create recording file
+        // Speech recognizer
+        speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN"))
+
+        // Create file (CAF — supports any AVAudioEngine native format without re-encode)
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("voice-\(UUID().uuidString).m4a")
+            .appendingPathComponent("voice-\(UUID().uuidString).caf")
         recordingURL = url
 
-        let settings: [String: Any] = [
-            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey: 16000,
-            AVNumberOfChannelsKey: 1,
-            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
-        ]
+        // Audio engine
+        let engine = AVAudioEngine()
+        let inputNode = engine.inputNode
+        let format = inputNode.outputFormat(forBus: 0)
 
+        // File for backup recording — share format with engine
         do {
-            let recorder = try AVAudioRecorder(url: url, settings: settings)
-            recorder.isMeteringEnabled = true
-            recorder.prepareToRecord()
-            recorder.record()
-            audioRecorder = recorder
-            isRecording = true
-            startRecordingTimer()
+            audioFile = try AVAudioFile(forWriting: url, settings: format.settings)
         } catch {
-            print("AVAudioRecorder failed: \(error)")
+            print("AVAudioFile failed: \(error)")
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            return
         }
+
+        // Install tap — single audio source, two consumers
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+            // Consumer 1: streaming recognizer (whatever request is current)
+            self.streamingHolder.request?.append(buffer)
+            // Consumer 2: write to file (backup)
+            try? self.audioFile?.write(from: buffer)
+            // Audio level for UI
+            let level = Self.bufferLevel(buffer)
+            DispatchQueue.main.async { self.audioLevel = level }
+        }
+
+        engine.prepare()
+        do {
+            try engine.start()
+        } catch {
+            print("Engine start failed: \(error)")
+            inputNode.removeTap(onBus: 0)
+            audioFile = nil
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            return
+        }
+        audioEngine = engine
+
+        // Kick off first recognition task
+        startRecognitionTask()
+
+        isRecording = true
+        startRecordingTimer()
+    }
+
+    private func startRecognitionTask() {
+        guard let recognizer = speechRecognizer, recognizer.isAvailable else {
+            streamingHolder.hadFatalError = true
+            return
+        }
+
+        let req = SFSpeechAudioBufferRecognitionRequest()
+        req.shouldReportPartialResults = true
+        if #available(iOS 16.0, *) {
+            req.addsPunctuation = true
+        }
+        // Atomically swap — tap will start writing to this from now on
+        streamingHolder.request = req
+
+        recognitionTask = recognizer.recognitionTask(with: req) { result, error in
+            if let result = result {
+                let text = result.bestTranscription.formattedString
+                DispatchQueue.main.async {
+                    self.partialText = text
+                }
+                if result.isFinal {
+                    // Task ended (60s timeout, endAudio, or session interrupt) → fold partial
+                    // into accumulated and start a fresh task so audio keeps flowing
+                    DispatchQueue.main.async {
+                        if !text.isEmpty {
+                            if self.accumulatedText.isEmpty {
+                                self.accumulatedText = text
+                            } else {
+                                self.accumulatedText += " " + text
+                            }
+                        }
+                        self.partialText = ""
+                        if self.isRecording {
+                            self.startRecognitionTask()
+                        }
+                    }
+                }
+            } else if let err = error as NSError? {
+                // 1110 = no speech detected → not fatal, just restart
+                // Other errors → mark fatal so we fall back to file recognition
+                let isNoSpeech = err.code == 1110 || err.code == 203
+                DispatchQueue.main.async {
+                    let savedPartial = self.partialText
+                    if !savedPartial.isEmpty {
+                        if self.accumulatedText.isEmpty {
+                            self.accumulatedText = savedPartial
+                        } else {
+                            self.accumulatedText += " " + savedPartial
+                        }
+                    }
+                    self.partialText = ""
+                    if isNoSpeech && self.isRecording {
+                        self.startRecognitionTask()
+                    } else if !isNoSpeech {
+                        self.streamingHolder.hadFatalError = true
+                    }
+                }
+            }
+        }
+    }
+
+    private static func bufferLevel(_ buffer: AVAudioPCMBuffer) -> CGFloat {
+        guard let channelData = buffer.floatChannelData else { return 0 }
+        let frameLength = Int(buffer.frameLength)
+        guard frameLength > 0 else { return 0 }
+        let samples = channelData.pointee
+        var sum: Float = 0
+        for i in 0..<frameLength {
+            sum += samples[i] * samples[i]
+        }
+        let rms = sqrt(sum / Float(frameLength))
+        let db = 20 * log10(max(rms, 0.000001))
+        let normalized = max(0, (db + 50) / 50)  // map -50..0 to 0..1
+        return CGFloat(min(1.0, normalized))
     }
 
     private func startRecordingTimer() {
@@ -572,13 +822,6 @@ struct SessionView: View {
         recordingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
             DispatchQueue.main.async {
                 recordingDuration += 0.1
-                // Update audio level
-                audioRecorder?.updateMeters()
-                if let power = audioRecorder?.averagePower(forChannel: 0) {
-                    // power is in dB, range -160 to 0
-                    let normalized = max(0, (power + 50) / 50)  // map -50..0 to 0..1
-                    audioLevel = CGFloat(min(1.0, normalized))
-                }
             }
         }
     }
@@ -587,32 +830,68 @@ struct SessionView: View {
         let cancelled = willCancel
         guard isRecording else { return }
 
-        // Stop recording
+        // Tear down audio engine + tap
+        audioEngine?.inputNode.removeTap(onBus: 0)
+        audioEngine?.stop()
+        audioEngine = nil
+        // End the streaming request so the recognition task delivers its final result
+        streamingHolder.request?.endAudio()
+        streamingHolder.request = nil
+        // Close file
+        audioFile = nil
+
         recordingTimer?.invalidate()
         recordingTimer = nil
-        audioRecorder?.stop()
+
         let url = recordingURL
         let duration = recordingDuration
-        audioRecorder = nil
+        let hadFatal = streamingHolder.hadFatalError
+
         isRecording = false
         audioLevel = 0
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
 
         if cancelled {
-            // Delete file if cancelled
+            recognitionTask?.cancel()
+            recognitionTask = nil
             if let url = url { try? FileManager.default.removeItem(at: url) }
+            accumulatedText = ""
+            partialText = ""
             return
         }
 
-        // Too short
         if duration < 0.5 {
+            recognitionTask?.cancel()
+            recognitionTask = nil
             if let url = url { try? FileManager.default.removeItem(at: url) }
+            accumulatedText = ""
+            partialText = ""
             return
         }
 
-        // Transcribe the recorded file (no time limit, no interruptions)
-        guard let url = url else { return }
-        transcribeFile(url: url)
+        // Wait briefly for the streaming task to deliver its final isFinal result
+        // (triggered by endAudio above), then decide whether to use streaming or file
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            recognitionTask = nil
+            let streamed = (accumulatedText + (accumulatedText.isEmpty ? "" : " ") + partialText)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if !hadFatal && !streamed.isEmpty {
+                // 流式识别成功 → 直接用，秒出预览
+                voicePreviewText = streamed
+                accumulatedText = ""
+                partialText = ""
+                if let url = url { try? FileManager.default.removeItem(at: url) }
+            } else if let url = url {
+                // 流式失败或没结果 → 用录到的文件再识别一次
+                accumulatedText = ""
+                partialText = ""
+                transcribeFile(url: url)
+            } else {
+                accumulatedText = ""
+                partialText = ""
+            }
+        }
     }
 
     private func transcribeFile(url: URL) {
@@ -636,9 +915,6 @@ struct SessionView: View {
                 DispatchQueue.main.async {
                     isTranscribing = false
                     voicePreviewText = text
-                    if !text.isEmpty {
-                        showVoicePreview = true
-                    }
                     try? FileManager.default.removeItem(at: url)
                 }
             } else if error != nil {
@@ -652,128 +928,49 @@ struct SessionView: View {
 
     private func stopRecording() {
         guard isRecording else { return }
+        audioEngine?.inputNode.removeTap(onBus: 0)
+        audioEngine?.stop()
+        audioEngine = nil
+        streamingHolder.request?.endAudio()
+        streamingHolder.request = nil
+        audioFile = nil
+        recognitionTask?.cancel()
+        recognitionTask = nil
         recordingTimer?.invalidate()
         recordingTimer = nil
-        audioRecorder?.stop()
         if let url = recordingURL {
             try? FileManager.default.removeItem(at: url)
         }
-        audioRecorder = nil
+        accumulatedText = ""
+        partialText = ""
         isRecording = false
         audioLevel = 0
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 }
 
-// MARK: - Voice Preview Sheet
+// MARK: - TextEditor with externally observable focus
 
-struct VoicePreviewSheet: View {
+struct TextEditorWithFocus: View {
     @Binding var text: String
-    let onConfirm: () -> Void
-    let onCancel: () -> Void
-
-    @FocusState private var isFocused: Bool
-    @State private var characterCount = 0
+    @Binding var isFocused: Bool
+    @FocusState private var focused: Bool
 
     var body: some View {
-        ZStack {
-            Color.dsBackground.ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                // Header
-                HStack {
-                    Button(action: { Haptics.light(); onCancel() }) {
-                        Text("取消")
-                            .font(.system(size: 16))
-                            .foregroundColor(.dsTextSecondary)
-                    }
-                    Spacer()
-                    HStack(spacing: 6) {
-                        Image(systemName: "waveform")
-                            .font(.system(size: 13))
-                            .foregroundStyle(LinearGradient.dsAccentGradient)
-                        Text("识别结果")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.dsTextPrimary)
-                    }
-                    Spacer()
-                    Button(action: { Haptics.medium(); onConfirm() }) {
-                        Text("发送")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .dsTextTertiary : .dsAccentBlue)
-                    }
-                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
-                .background(
-                    Color.dsBackground
-                        .overlay(alignment: .bottom) {
-                            Rectangle().fill(Color.dsBorder).frame(height: 0.5)
-                        }
-                )
-
-                // Text editor — large, native, with autocorrect
-                TextEditor(text: $text)
-                    .focused($isFocused)
-                    .font(.system(size: 19))
-                    .lineSpacing(6)
-                    .foregroundColor(.dsTextPrimary)
-                    .scrollContentBackground(.hidden)
-                    .background(Color.dsBackground)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
-                    .autocorrectionDisabled(false)
-                    .textInputAutocapitalization(.sentences)
-                    .onChange(of: text) { newValue in
-                        characterCount = newValue.count
-                    }
-
-                // Bottom toolbar
-                HStack(spacing: 16) {
-                    // Character count
-                    Text("\(characterCount) 字")
-                        .font(.system(size: 12))
-                        .foregroundColor(.dsTextTertiary)
-
-                    Spacer()
-
-                    // Clear all
-                    if !text.isEmpty {
-                        Button(action: {
-                            Haptics.light()
-                            text = ""
-                        }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "trash")
-                                    .font(.system(size: 12))
-                                Text("清空")
-                                    .font(.system(size: 13))
-                            }
-                            .foregroundColor(.dsTextSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .background(Capsule().fill(Color.dsCardHover))
-                        }
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .background(
-                    Color.dsBackground
-                        .overlay(alignment: .top) {
-                            Rectangle().fill(Color.dsBorder).frame(height: 0.5)
-                        }
-                )
+        TextEditor(text: $text)
+            .focused($focused)
+            .font(.system(size: 16))
+            .lineSpacing(4)
+            .foregroundColor(.dsTextPrimary)
+            .scrollContentBackground(.hidden)
+            .background(Color.clear)
+            .autocorrectionDisabled(false)
+            .textInputAutocapitalization(.sentences)
+            .onChange(of: focused) { newValue in
+                if isFocused != newValue { isFocused = newValue }
             }
-        }
-        .preferredColorScheme(.dark)
-        .onAppear {
-            characterCount = text.count
-            // Auto-focus and place cursor at end
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                isFocused = true
+            .onChange(of: isFocused) { newValue in
+                if focused != newValue { focused = newValue }
             }
-        }
     }
 }
