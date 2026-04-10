@@ -178,21 +178,12 @@ extension View {
 
 struct DSStatusPill: View {
     let connected: Bool
-    @State private var pulse = false
 
     var body: some View {
         HStack(spacing: 6) {
-            ZStack {
-                Circle()
-                    .fill(connected ? Color.dsIdle : Color.dsError)
-                    .frame(width: 8, height: 8)
-                Circle()
-                    .stroke(connected ? Color.dsIdle : Color.dsError, lineWidth: 1.5)
-                    .frame(width: 14, height: 14)
-                    .scaleEffect(pulse ? 1.4 : 1.0)
-                    .opacity(pulse ? 0 : 0.8)
-            }
-            .frame(width: 14, height: 14)
+            Circle()
+                .fill(connected ? Color.dsIdle : Color.dsError)
+                .frame(width: 7, height: 7)
 
             Text(connected ? "已连接" : "断开")
                 .font(.system(size: 12, weight: .medium))
@@ -206,8 +197,5 @@ struct DSStatusPill: View {
         .overlay(
             Capsule().stroke(Color.white.opacity(0.08), lineWidth: 1)
         )
-        .onAppear {
-            withAnimation(DSAnim.breath) { pulse = true }
-        }
     }
 }

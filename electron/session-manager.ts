@@ -526,7 +526,7 @@ export class SessionManager extends EventEmitter {
 
       // Auto-approve: detect permission prompts in terminal output
       if (this.isAutoApprove(id)) {
-        // Detect common approval patterns from Claude CLI
+        // Detect common approval patterns from Claude CLI (simple Y/n prompts)
         if (/\(Y\)es/i.test(session.recentOutput) || /\[Y\/n\]/i.test(session.recentOutput) || /Do you want to proceed/i.test(session.recentOutput)) {
           session.recentOutput = '';
           setTimeout(() => {
@@ -534,8 +534,10 @@ export class SessionManager extends EventEmitter {
             if (s) s.pty.write('y');
           }, 200);
         }
-        // Detect sandbox permission prompts (network/filesystem interactive menu)
-        if (/Do you want to allow/i.test(session.recentOutput) && /❯\s*1\.\s*Yes/i.test(session.recentOutput)) {
+        // Detect interactive numbered menus (❯ points to current selection)
+        // Covers: "Do you want to allow/create ...", "Would you like to proceed" etc.
+        if (/❯\s*\d+\.\s*(Yes|Allow)/i.test(session.recentOutput) &&
+            /(Do you want to|Would you like to)/i.test(session.recentOutput)) {
           session.recentOutput = '';
           setTimeout(() => {
             const s = this.sessions.get(id);

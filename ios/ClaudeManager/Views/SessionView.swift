@@ -14,7 +14,9 @@ struct SessionView: View {
     @EnvironmentObject var viewModel: AppViewModel
 
     @State private var inputText = ""
-    @State private var inputMode: InputMode = .keyboard
+    @State private var inputMode: InputMode = {
+        UserDefaults.standard.string(forKey: "lastInputMode") == "voice" ? .voice : .keyboard
+    }()
     @State private var voicePreviewText = ""
     @State private var voicePreviewFocused: Bool = false
     @State private var isRecording = false
@@ -100,16 +102,22 @@ struct SessionView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
-                // Input bar (or voice preview pane when there's recognized text)
-                if voicePreviewText.isEmpty {
-                    inputBar
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                } else {
-                    voicePreviewPane
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
+                // Input bar
+                inputBar
             }
-            .animation(DSAnim.spring, value: voicePreviewText.isEmpty)
+
+            // Voice preview overlay (居中气泡 + 轻遮罩)
+            if !voicePreviewText.isEmpty {
+                // 轻遮罩 — 让终端退到后面，气泡突出
+                Color.black.opacity(0.25)
+                    .ignoresSafeArea()
+                    .onTapGesture { voicePreviewFocused = false }
+                    .zIndex(98)
+
+                voicePreviewPane
+                    .transition(.scale(scale: 0.95).combined(with: .opacity))
+                    .zIndex(99)
+            }
 
             // Voice recording overlay (WeChat style)
             if isRecording {
@@ -362,162 +370,112 @@ struct SessionView: View {
         .padding(.bottom, 6)
     }
 
-    // MARK: - Floating Quick Keys (2x2 grid)
+    // MARK: - Floating Quick Keys (single row)
 
     private var floatingQuickKeys: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 6) {
-                quickKey(symbol: "arrow.up") {
-                    viewModel.webSocketService.sendRawInput(sessionId: sessionId, data: "\u{1b}[A")
-                }
-                quickKey(symbol: "arrow.down") {
-                    viewModel.webSocketService.sendRawInput(sessionId: sessionId, data: "\u{1b}[B")
-                }
+        HStack(spacing: 6) {
+            quickKey(symbol: "arrow.up") {
+                viewModel.webSocketService.sendRawInput(sessionId: sessionId, data: "\u{1b}[A")
             }
-            HStack(spacing: 6) {
-                quickKey(symbol: "return") {
-                    viewModel.webSocketService.sendRawInput(sessionId: sessionId, data: "\r")
-                }
-                quickKey(symbol: "escape") {
-                    viewModel.webSocketService.sendRawInput(sessionId: sessionId, data: "\u{1b}")
-                }
+            quickKey(symbol: "arrow.down") {
+                viewModel.webSocketService.sendRawInput(sessionId: sessionId, data: "\u{1b}[B")
+            }
+            quickKey(symbol: "escape") {
+                viewModel.webSocketService.sendRawInput(sessionId: sessionId, data: "\u{1b}")
+            }
+            quickKey(symbol: "return") {
+                viewModel.webSocketService.sendRawInput(sessionId: sessionId, data: "\r")
             }
         }
-        .padding(8)
+        .padding(6)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.black.opacity(0.25))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.white.opacity(0.06), lineWidth: 0.5)
         )
-        .shadow(color: Color.black.opacity(0.4), radius: 10, x: 0, y: 6)
     }
 
     private func quickKey(symbol: String, action: @escaping () -> Void) -> some View {
         Button {
-            Haptics.light()
+            Haptics.medium()
             action()
         } label: {
             Image(systemName: symbol)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(.dsTextPrimary)
-                .frame(width: 40, height: 40)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(.dsTextPrimary.opacity(0.7))
+                .frame(width: 38, height: 38)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.dsCardHover.opacity(0.6))
+                        .fill(Color.dsCardHover.opacity(0.35))
                 )
         }
         .buttonStyle(DSPressableStyle(scale: 0.9))
     }
 
-    // MARK: - Voice Preview Pane (微信式：识别结果在输入栏位置内联编辑)
+    // MARK: - Voice Preview Pane (居中气泡，无遮罩)
 
     private var voicePreviewPane: some View {
         VStack(spacing: 0) {
-            // Header bar: 标识 + 字数
-            HStack(spacing: 6) {
-                Image(systemName: "waveform")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(LinearGradient.dsAccentGradient)
-                Text("识别结果")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.dsTextSecondary)
-                Spacer()
-                Text("\(voicePreviewText.count) 字")
-                    .font(.system(size: 11))
-                    .foregroundColor(.dsTextTertiary)
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
-            .padding(.bottom, 6)
-
-            // Editable text — 自适应高度，最多 6 行
+            // 文字编辑区
             TextEditorWithFocus(
                 text: $voicePreviewText,
                 isFocused: $voicePreviewFocused
             )
-            .frame(minHeight: 44, maxHeight: 168)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.dsCardHover)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(voicePreviewFocused ? Color.dsAccentBlue : Color.dsBorder,
-                            lineWidth: voicePreviewFocused ? 1.5 : 1)
-            )
-            .padding(.horizontal, 12)
+            .frame(minHeight: 44, maxHeight: 240)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 18)
+            .padding(.top, 18)
+            .padding(.bottom, 14)
 
-            // Action row: 取消 / 重录 / 发送
-            HStack(spacing: 10) {
-                // 取消
+            // 分割线
+            Rectangle()
+                .fill(Color.white.opacity(0.08))
+                .frame(height: 0.5)
+                .padding(.horizontal, 14)
+
+            // 操作栏
+            HStack(spacing: 14) {
                 Button {
                     Haptics.light()
                     voicePreviewText = ""
                     voicePreviewFocused = false
                 } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 12, weight: .semibold))
-                        Text("取消")
-                            .font(.system(size: 13, weight: .medium))
-                    }
-                    .foregroundColor(.dsTextSecondary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 36)
-                    .background(Capsule().fill(Color.dsCardHover))
+                    Text("取消")
+                        .font(.system(size: 15))
+                        .foregroundColor(.white.opacity(0.45))
+                        .frame(minWidth: 50, minHeight: 36)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(DSPressableStyle())
 
-                // 重录
-                Button {
-                    Haptics.medium()
-                    voicePreviewText = ""
-                    voicePreviewFocused = false
-                    // 自动确保切到语音模式 + 提示
-                    if inputMode != .voice {
-                        inputMode = .voice
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.counterclockwise")
-                            .font(.system(size: 12, weight: .semibold))
-                        Text("重录")
-                            .font(.system(size: 13, weight: .medium))
-                    }
-                    .foregroundColor(.dsTextPrimary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 36)
-                    .background(Capsule().fill(Color.dsCardHighlight))
-                }
-                .buttonStyle(DSPressableStyle())
+                Spacer()
 
-                // 发送
+                Text("\(voicePreviewText.count) 字")
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.2))
+
                 Button {
                     Haptics.medium()
                     let text = voicePreviewText.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !text.isEmpty else { return }
                     viewModel.webSocketService.sendInput(sessionId: sessionId, text: text)
-                    voicePreviewText = ""
-                    voicePreviewFocused = false
+                    voicePreviewText = ""; voicePreviewFocused = false
                 } label: {
                     HStack(spacing: 4) {
-                        Image(systemName: "paperplane.fill")
-                            .font(.system(size: 12, weight: .semibold))
                         Text("发送")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: 15, weight: .semibold))
+                        Image(systemName: "paperplane.fill")
+                            .font(.system(size: 11))
                     }
                     .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 22)
                     .frame(height: 36)
                     .background(
                         Capsule().fill(
                             voicePreviewText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            ? AnyShapeStyle(Color.dsCardHighlight)
+                            ? AnyShapeStyle(Color.white.opacity(0.12))
                             : AnyShapeStyle(LinearGradient.dsAccentGradient)
                         )
                     )
@@ -525,16 +483,20 @@ struct SessionView: View {
                 .buttonStyle(DSPressableStyle())
                 .disabled(voicePreviewText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
         }
-        .background(.ultraThinMaterial)
-        .overlay(
-            Rectangle()
-                .frame(height: 0.5)
-                .foregroundColor(Color.dsBorder),
-            alignment: .top
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color(red: 0.18, green: 0.19, blue: 0.25))
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.7), radius: 30, x: 0, y: 10)
+        .shadow(color: Color.dsAccentBlue.opacity(0.08), radius: 50, x: 0, y: 0)
+        .padding(.horizontal, 20)
     }
 
     // MARK: - Input Bar
@@ -545,6 +507,7 @@ struct SessionView: View {
             Button {
                 Haptics.light()
                 inputMode = inputMode == .keyboard ? .voice : .keyboard
+                UserDefaults.standard.set(inputMode == .voice ? "voice" : "keyboard", forKey: "lastInputMode")
                 if inputMode == .keyboard { stopRecording() }
             } label: {
                 Image(systemName: inputMode == .keyboard ? "mic.fill" : "keyboard.fill")
@@ -949,6 +912,19 @@ struct SessionView: View {
     }
 }
 
+// MARK: - Triangle shape (气泡尾巴)
+
+struct Triangle: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path { p in
+            p.move(to: CGPoint(x: rect.midX - rect.width / 2, y: 0))
+            p.addLine(to: CGPoint(x: rect.midX, y: rect.height))
+            p.addLine(to: CGPoint(x: rect.midX + rect.width / 2, y: 0))
+            p.closeSubpath()
+        }
+    }
+}
+
 // MARK: - TextEditor with externally observable focus
 
 struct TextEditorWithFocus: View {
@@ -959,11 +935,12 @@ struct TextEditorWithFocus: View {
     var body: some View {
         TextEditor(text: $text)
             .focused($focused)
-            .font(.system(size: 16))
-            .lineSpacing(4)
-            .foregroundColor(.dsTextPrimary)
+            .font(.system(size: 20))
+            .lineSpacing(8)
+            .foregroundColor(.white)
             .scrollContentBackground(.hidden)
             .background(Color.clear)
+            .tint(.dsAccentBlue)
             .autocorrectionDisabled(false)
             .textInputAutocapitalization(.sentences)
             .onChange(of: focused) { newValue in
