@@ -417,6 +417,7 @@ export class SessionManager extends EventEmitter {
       ...(process.env as Record<string, string>),
       CLAUDE_MANAGER_PORT: String(this.hookServerPort),
       CLAUDE_MANAGER_SESSION_ID: id,
+      CLAUDE_CODE_NO_FLICKER: '1',
     };
     const logFile = require('path').join(require('os').homedir(), '.claude', 'managed-debug.log');
     require('fs').appendFileSync(logFile, `[${new Date().toISOString()}] CREATE SESSION: id=${id.slice(0,8)} cwd=${cwd} port=${this.hookServerPort} hidden=${hidden}\n`);
