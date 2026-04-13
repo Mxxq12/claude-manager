@@ -74,23 +74,90 @@ struct SessionListView: View {
                 Text("确定要删除会话 \"\(session.name)\" 吗？")
             }
         }
-        .alert("服务器地址", isPresented: $showServerSettings) {
-            TextField("地址", text: $newServerAddress)
-                .autocapitalization(.none)
-                .autocorrectionDisabled()
-            Button("清空", role: .destructive) {
-                newServerAddress = ""
-                showServerSettings = true
-            }
-            Button("取消", role: .cancel) {}
-            Button("重新连接") {
-                if !newServerAddress.isEmpty {
-                    viewModel.reconnect(server: newServerAddress)
+        .sheet(isPresented: $showServerSettings) {
+            serverSettingsSheet
+        }
+    }
+
+    // MARK: - Server Settings Sheet
+
+    @FocusState private var serverFieldFocused: Bool
+
+    private var serverSettingsSheet: some View {
+        NavigationView {
+            ZStack {
+                Color.dsBackground.ignoresSafeArea()
+                VStack(spacing: 20) {
+                    Text("当前: \(viewModel.serverAddress)")
+                        .font(.system(size: 13))
+                        .foregroundColor(.dsTextSecondary)
+                        .padding(.top, 8)
+
+                    HStack(spacing: 10) {
+                        TextField("http://192.168.1.x:3200", text: $newServerAddress)
+                            .textFieldStyle(.plain)
+                            .keyboardType(.URL)
+                            .autocapitalization(.none)
+                            .autocorrectionDisabled()
+                            .foregroundColor(.dsTextPrimary)
+                            .focused($serverFieldFocused)
+
+                        if !newServerAddress.isEmpty {
+                            Button {
+                                newServerAddress = ""
+                                Haptics.light()
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 18))
+                                    .foregroundColor(.dsTextTertiary)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(height: 48)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.dsCardHover)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(serverFieldFocused ? Color.dsAccentBlue : Color.dsBorder, lineWidth: serverFieldFocused ? 1.5 : 1)
+                    )
+                    .padding(.horizontal, 20)
+
+                    Button {
+                        if !newServerAddress.isEmpty {
+                            viewModel.reconnect(server: newServerAddress)
+                            showServerSettings = false
+                        }
+                    } label: {
+                        Text("重新连接")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(newServerAddress.isEmpty ? AnyShapeStyle(Color.gray) : AnyShapeStyle(LinearGradient.dsAccentGradient))
+                            )
+                    }
+                    .disabled(newServerAddress.isEmpty)
+                    .padding(.horizontal, 20)
+
+                    Spacer()
                 }
             }
-        } message: {
-            Text("当前: \(viewModel.serverAddress)")
+            .navigationTitle("服务器地址")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { showServerSettings = false }
+                }
+            }
+            .onAppear { serverFieldFocused = true }
         }
+        .presentationDetents([.height(280)])
+        .preferredColorScheme(.dark)
     }
 
     // MARK: - Empty State
