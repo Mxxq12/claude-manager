@@ -78,6 +78,10 @@ struct SessionListView: View {
             TextField("地址", text: $newServerAddress)
                 .autocapitalization(.none)
                 .autocorrectionDisabled()
+            Button("清空", role: .destructive) {
+                newServerAddress = ""
+                showServerSettings = true
+            }
             Button("取消", role: .cancel) {}
             Button("重新连接") {
                 if !newServerAddress.isEmpty {
