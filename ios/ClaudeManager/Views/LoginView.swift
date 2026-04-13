@@ -111,6 +111,16 @@ struct LoginView: View {
                         .autocorrectionDisabled()
                         .foregroundColor(.dsTextPrimary)
                         .focused($focusedField, equals: .server)
+                    if !server.isEmpty {
+                        Button {
+                            server = ""
+                            Haptics.light()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 16))
+                                .foregroundColor(.dsTextTertiary)
+                        }
+                    }
                 },
                 isFocused: focusedField == .server
             )
