@@ -415,88 +415,97 @@ struct SessionView: View {
         .buttonStyle(DSPressableStyle(scale: 0.9))
     }
 
-    // MARK: - Voice Preview Pane (居中气泡，无遮罩)
+    // MARK: - Voice Preview Pane (微信风格：气泡 + 底部大按钮)
 
     private var voicePreviewPane: some View {
-        VStack(spacing: 0) {
-            // 文字编辑区
-            TextEditorWithFocus(
-                text: $voicePreviewText,
-                isFocused: $voicePreviewFocused
-            )
-            .frame(minHeight: 44, maxHeight: 240)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 18)
-            .padding(.top, 18)
-            .padding(.bottom, 14)
+        ZStack {
+            // 半透明遮罩
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+                .onTapGesture { voicePreviewFocused = false }
 
-            // 分割线
-            Rectangle()
-                .fill(Color.white.opacity(0.08))
-                .frame(height: 0.5)
-                .padding(.horizontal, 14)
-
-            // 操作栏
-            HStack(spacing: 14) {
-                Button {
-                    Haptics.light()
-                    voicePreviewText = ""
-                    voicePreviewFocused = false
-                } label: {
-                    Text("取消")
-                        .font(.system(size: 15))
-                        .foregroundColor(.white.opacity(0.45))
-                        .frame(minWidth: 50, minHeight: 36)
-                        .contentShape(Rectangle())
-                }
-
-                Spacer()
-
-                Text("\(voicePreviewText.count) 字")
-                    .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.2))
-
-                Button {
-                    Haptics.medium()
-                    let text = voicePreviewText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !text.isEmpty else { return }
-                    viewModel.webSocketService.sendInput(sessionId: sessionId, text: text)
-                    voicePreviewText = ""; voicePreviewFocused = false
-                } label: {
-                    HStack(spacing: 4) {
-                        Text("发送")
-                            .font(.system(size: 15, weight: .semibold))
-                        Image(systemName: "paperplane.fill")
-                            .font(.system(size: 11))
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 22)
-                    .frame(height: 36)
-                    .background(
-                        Capsule().fill(
-                            voicePreviewText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            ? AnyShapeStyle(Color.white.opacity(0.12))
-                            : AnyShapeStyle(LinearGradient.dsAccentGradient)
+            ZStack {
+                // 气泡居中
+                VStack(spacing: 0) {
+                    VStack(spacing: 0) {
+                        TextEditorWithFocus(
+                            text: $voicePreviewText,
+                            isFocused: $voicePreviewFocused
                         )
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 16)
+                    }
+                    .background(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .fill(Color(red: 0.22, green: 0.28, blue: 0.50))
                     )
+                    .padding(.horizontal, 32)
+
+                    // 气泡尾巴
+                    Triangle()
+                        .fill(Color(red: 0.22, green: 0.28, blue: 0.50))
+                        .frame(width: 14, height: 7)
                 }
-                .buttonStyle(DSPressableStyle())
-                .disabled(voicePreviewText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                // 底部大按钮（固定在底部）
+                VStack {
+                    Spacer()
+                    HStack(spacing: 0) {
+                    // 取消
+                    Button {
+                        Haptics.light()
+                        voicePreviewText = ""
+                        voicePreviewFocused = false
+                    } label: {
+                        VStack(spacing: 6) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 22, weight: .medium))
+                                .foregroundColor(.white)
+                                .frame(width: 56, height: 56)
+                                .background(Circle().fill(Color.white.opacity(0.15)))
+                            Text("取消")
+                                .font(.system(size: 12))
+                                .foregroundColor(.white.opacity(0.6))
+                        }
+                    }
+                    .buttonStyle(DSPressableStyle())
+
+                    Spacer()
+
+                    // 发送
+                    Button {
+                        Haptics.medium()
+                        let text = voicePreviewText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !text.isEmpty else { return }
+                        viewModel.webSocketService.sendInput(sessionId: sessionId, text: text)
+                        voicePreviewText = ""; voicePreviewFocused = false
+                    } label: {
+                        VStack(spacing: 6) {
+                            Text("发送")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 100, height: 56)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .fill(
+                                            voicePreviewText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                            ? AnyShapeStyle(Color.white.opacity(0.15))
+                                            : AnyShapeStyle(LinearGradient.dsAccentGradient)
+                                        )
+                                )
+                            Text("\(voicePreviewText.count) 字")
+                                .font(.system(size: 12))
+                                .foregroundColor(.white.opacity(0.4))
+                        }
+                    }
+                    .buttonStyle(DSPressableStyle())
+                    .disabled(voicePreviewText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                .padding(.horizontal, 50)
+                .padding(.bottom, 40)
+                }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
         }
-        .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color(red: 0.18, green: 0.19, blue: 0.25))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
-        )
-        .shadow(color: .black.opacity(0.7), radius: 30, x: 0, y: 10)
-        .shadow(color: Color.dsAccentBlue.opacity(0.08), radius: 50, x: 0, y: 0)
-        .padding(.horizontal, 20)
     }
 
     // MARK: - Input Bar
@@ -933,16 +942,15 @@ struct TextEditorWithFocus: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        TextEditor(text: $text)
+        TextField("", text: $text, axis: .vertical)
             .focused($focused)
-            .font(.system(size: 20))
-            .lineSpacing(8)
+            .font(.system(size: 19))
+            .lineSpacing(6)
             .foregroundColor(.white)
-            .scrollContentBackground(.hidden)
-            .background(Color.clear)
-            .tint(.dsAccentBlue)
+            .tint(.white)
             .autocorrectionDisabled(false)
             .textInputAutocapitalization(.sentences)
+            .lineLimit(1...12)
             .onChange(of: focused) { newValue in
                 if isFocused != newValue { isFocused = newValue }
             }

@@ -417,7 +417,6 @@ export class SessionManager extends EventEmitter {
       ...(process.env as Record<string, string>),
       CLAUDE_MANAGER_PORT: String(this.hookServerPort),
       CLAUDE_MANAGER_SESSION_ID: id,
-      CLAUDE_CODE_NO_FLICKER: '1',
     };
     const logFile = require('path').join(require('os').homedir(), '.claude', 'managed-debug.log');
     require('fs').appendFileSync(logFile, `[${new Date().toISOString()}] CREATE SESSION: id=${id.slice(0,8)} cwd=${cwd} port=${this.hookServerPort} hidden=${hidden}\n`);
@@ -461,7 +460,16 @@ export class SessionManager extends EventEmitter {
       throw err;
     }
     // Export env vars so claude's hook subprocesses can access them, then launch claude
-    const resumeFlag = resume ? ' --continue' : '';
+    // If resume requested, check if conversation history actually exists for this cwd
+    let effectiveResume = resume;
+    if (resume) {
+      const cwdKey = cwd.replace(/\//g, '-');
+      const projectDir = require('path').join(require('os').homedir(), '.claude', 'projects', cwdKey);
+      if (!require('fs').existsSync(projectDir)) {
+        effectiveResume = false;
+      }
+    }
+    const resumeFlag = effectiveResume ? ' --continue' : '';
     ptyProcess.write(`export CLAUDE_MANAGER_PORT=${this.hookServerPort} CLAUDE_MANAGER_SESSION_ID=${id} && clear && ${claudePath} --dangerously-skip-permissions --permission-mode bypassPermissions${resumeFlag}\r`);
 
     const session: Session = {
@@ -535,9 +543,9 @@ export class SessionManager extends EventEmitter {
             if (s) s.pty.write('y');
           }, 200);
         }
-        // Detect interactive numbered menus (❯ points to current selection)
-        // Covers: "Do you want to allow/create ...", "Would you like to proceed" etc.
-        if (/❯\s*\d+\.\s*(Yes|Allow)/i.test(session.recentOutput) &&
+        // Detect interactive numbered menus
+        // Claude CLI 用光标定位渲染菜单，❯ 不会出现在文字流里，只匹配问题 + 编号选项
+        if (/\d+\.\s*(Yes|Allow)/i.test(session.recentOutput) &&
             /(Do you want to|Would you like to)/i.test(session.recentOutput)) {
           session.recentOutput = '';
           setTimeout(() => {
