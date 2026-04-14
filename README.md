@@ -81,6 +81,39 @@ rm -rf "/Applications/Claude Manager.app"
 cp -R "release/mac-arm64/Claude Manager.app" /Applications/
 ```
 
+## 远程访问（iOS / 手机浏览器）
+
+应用启动后自动开启 Web 服务器，默认监听 `4000` 端口。
+
+### 环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `CLAUDE_REMOTE_PORT` | `4000` | Web 服务器端口 |
+| `CLAUDE_REMOTE_PASSWORD` | `admin123` | 登录密码 |
+
+### 局域网访问
+
+同一 Wi-Fi 下，手机浏览器直接访问 `http://<Mac的IP>:4000` 即可。
+
+### 公网访问（Cloudflare Tunnel）
+
+出门在外想远程控制家里/办公室的电脑？用 Cloudflare 临时隧道（免账号、免配置）：
+
+```bash
+# 安装 cloudflared（只需一次）
+brew install cloudflared
+
+# 开通公网隧道
+cloudflared tunnel --url http://localhost:4000
+```
+
+终端会输出一个 `https://xxx-xxx.trycloudflare.com` 地址，手机浏览器或 iOS App 填进去就能用。
+
+> **注意：** 快速隧道每次重启域名都会变。需要固定域名请使用 [Cloudflare 账号的 named tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps)。
+
+其他可选方案：[ngrok](https://ngrok.com)、[frp](https://github.com/fatedier/frp)、[tailscale](https://tailscale.com) 等。
+
 ## 快捷键
 
 | 快捷键 | 功能 |
